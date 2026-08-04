@@ -1,0 +1,13 @@
+.venv/
+__pycache__/
+*.py[cod]
+
+# Auth and competition-restricted material
+.kaggle/
+competition-data/
+
+# Generated evaluation artifacts
+logs/
+replays/
+reports/
+submission*.tar.gz

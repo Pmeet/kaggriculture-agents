@@ -9,6 +9,111 @@ SELLABLE_PRODUCTS = (
     "WOOL",
     "FERTILIZER",
 )
+SHED_CAPACITY = 100
+
+
+def _terminal_unit_actions(farm, inventories, shed, market_prices):
+    board_size = len(farm["tiles"])
+    half = board_size // 2
+    shed_access = {
+        (half - 1, half - 1),
+        (half, half - 1),
+        (half - 1, half),
+        (half, half),
+    }
+    positions = [farm["farmer"], *farm["hands"]]
+    actions = [["PASS"] for _ in positions]
+    projected_shed = dict(shed)
+    room = max(0, SHED_CAPACITY - sum(projected_shed.values()))
+    eligible = []
+
+    for unit_index, (position, inventory) in enumerate(
+        zip(positions, inventories, strict=True)
+    ):
+        unit_x, unit_y = position
+        tile = farm["tiles"][unit_y][unit_x]
+        positive_inventory = {
+            item: quantity
+            for item, quantity in inventory.items()
+            if quantity > 0
+        }
+        sellable_inventory = {
+            item: quantity
+            for item, quantity in positive_inventory.items()
+            if item in SELLABLE_PRODUCTS
+        }
+        if (
+            room > 0
+            and sellable_inventory
+            and (unit_x, unit_y) in shed_access
+            and tile != "LOCKED"
+        ):
+            eligible.append(
+                (unit_index, positive_inventory, sellable_inventory)
+            )
+
+    total_eligible_inventory = sum(
+        sum(positive_inventory.values())
+        for _, positive_inventory, _ in eligible
+    )
+    if total_eligible_inventory <= room:
+        for unit_index, positive_inventory, _ in eligible:
+            actions[unit_index] = ["DROP"]
+            for item, quantity in positive_inventory.items():
+                projected_shed[item] = projected_shed.get(item, 0) + quantity
+        return actions[0], actions[1:], projected_shed
+
+    states = {0: (0, ())}
+    for _, positive_inventory, sellable_inventory in eligible:
+        choices = [(["PASS"], {}, 0, 0)]
+        inventory_total = sum(positive_inventory.values())
+        if inventory_total <= room:
+            drop_value = sum(
+                max(1, market_prices.get(item, 1)) * quantity
+                for item, quantity in sellable_inventory.items()
+            )
+            choices.append(
+                (["DROP"], positive_inventory, inventory_total, drop_value)
+            )
+        for item in SELLABLE_PRODUCTS:
+            available = sellable_inventory.get(item, 0)
+            unit_price = max(1, market_prices.get(item, 1))
+            for quantity in range(1, min(available, room) + 1):
+                action = ["PLACE", item, quantity]
+                if len(positive_inventory) == 1 and quantity == available:
+                    action = ["DROP"]
+                choices.append(
+                    (action, {item: quantity}, quantity, unit_price * quantity)
+                )
+
+        next_states = {}
+        for used, (value, selections) in states.items():
+            for choice in choices:
+                next_used = used + choice[2]
+                if next_used > room:
+                    continue
+                next_value = value + choice[3]
+                existing = next_states.get(next_used)
+                if existing is None or next_value > existing[0]:
+                    next_states[next_used] = (
+                        next_value,
+                        (*selections, choice),
+                    )
+        states = next_states
+
+    _, selections = max(
+        states.values(),
+        key=lambda state: (state[0], -sum(choice[2] for choice in state[1])),
+    )
+    for (unit_index, _, _), (action, additions, _, _) in zip(
+        eligible,
+        selections,
+        strict=True,
+    ):
+        actions[unit_index] = action
+        for item, quantity in additions.items():
+            projected_shed[item] = projected_shed.get(item, 0) + quantity
+    return actions[0], actions[1:], projected_shed
 
 
 def agent(obs):
@@ -21,37 +126,14 @@ def agent(obs):
     tile = farm["tiles"][farmer_y][farmer_x]
 
     if obs["step"] >= 718:
-        board_size = len(farm["tiles"])
-        half = board_size // 2
-        shed_access = {
-            (half - 1, half - 1),
-            (half, half - 1),
-            (half - 1, half),
-            (half, half),
-        }
-        projected_shed = dict(shed)
         inventories = private["inventories"]
-
-        farmer = ["PASS"]
-        if (
-            inventories[0]
-            and (farmer_x, farmer_y) in shed_access
-            and tile != "LOCKED"
-        ):
-            farmer = ["DROP"]
-            for item, quantity in inventories[0].items():
-                projected_shed[item] = projected_shed.get(item, 0) + quantity
-
-        hands = []
-        for index, (hand_x, hand_y) in enumerate(farm["hands"], start=1):
-            hand_tile = farm["tiles"][hand_y][hand_x]
-            inventory = inventories[index]
-            if inventory and (hand_x, hand_y) in shed_access and hand_tile != "LOCKED":
-                hands.append(["DROP"])
-                for item, quantity in inventory.items():
-                    projected_shed[item] = projected_shed.get(item, 0) + quantity
-            else:
-                hands.append(["PASS"])
+        market_prices = obs["market"].get("prices", {})
+        farmer, hands, projected_shed = _terminal_unit_actions(
+            farm,
+            inventories,
+            shed,
+            market_prices,
+        )
 
         market = [
             ["SELL", item, projected_shed.get(item, 0)]

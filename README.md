@@ -40,7 +40,7 @@ The direct package versions are pinned, but transitive dependencies are not lock
 - waters daily;
 - harvests at the maximum-yield day;
 - sells shed inventory;
-- drops and liquidates recoverable products on actionable step 718;
+- liquidates recoverable products on actionable step 718 without overflowing the shed;
 - returns the required farmer/hands/market action schema.
 
 The integration suite also completes a full episode from both player seats. The baseline is equivalent in strength to Kaggle's built-in `starter` and is not intended to be the first competitive strategy.
@@ -54,7 +54,7 @@ Each run writes:
 - `report.json` — manifest, aggregate metrics, per-game results, Python/package versions, and SHA-256 hashes of the current single-file candidate, installed engine, and file-based opponent when applicable;
 - `games.csv` — one row per game for later comparisons.
 
-`kaggriculture_harness.actions` currently provides fail-closed structural checks, exact hand normalization, atomic seed reservation, the ten-market-slot rule, and out-of-bounds movement detection. The tournament runner observes and reports issues without changing the candidate's actions.
+`kaggriculture_harness.actions` provides fail-closed structural checks, exact hand normalization, atomic seed reservation, the ten-market-slot rule, and an engine-backed scratch-state reducer. Unit actions are evaluated on deep copies in farmer-then-hands order, so the validator catches sequential no-ops, destructive shed overflow, and redundant fertilizer without mutating the live observation. The tournament runner observes and reports issues without changing the candidate's actions; market affordability projection is not yet state-aware because dynamic prices can depend on the opponent's simultaneous orders.
 
 `kaggle-environments` may print unrelated OpenSpiel registration warnings during its first import. They do not affect Kaggriculture runs; rely on the test exit code and final `DONE` statuses.
 

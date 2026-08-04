@@ -1,3 +1,4 @@
+import copy
 import unittest
 
 from kaggriculture_harness.actions import guard_action, inspect_action
@@ -315,6 +316,173 @@ class ActionGuardTest(unittest.TestCase):
             },
         )
         self.assertTrue(all(issue.severity == "NO_OP" for issue in issues))
+
+    def test_reports_a_later_unit_action_that_sequentially_becomes_a_no_op(self):
+        obs = observation(farmer=(2, 2), hand_positions=[(2, 2)])
+        action = {
+            "farmer": ["BUILD_COOP"],
+            "hands": [["BUILD_PASTURE"]],
+            "market": [],
+        }
+
+        issues = inspect_action(obs, action)
+
+        self.assertEqual(
+            [(issue.code, issue.path) for issue in issues],
+            [("unit.no_effect", "$.hands[0]")],
+        )
+
+    def test_guard_removes_a_later_unit_action_that_has_no_effect(self):
+        guarded = guard_action(
+            observation(farmer=(2, 2), hand_positions=[(2, 2)]),
+            {
+                "farmer": ["BUILD_COOP"],
+                "hands": [["BUILD_PASTURE"]],
+                "market": [],
+            },
+        )
+
+        self.assertEqual(guarded["farmer"], ["BUILD_COOP"])
+        self.assertEqual(guarded["hands"], [["PASS"]])
+
+    def test_preserves_a_later_action_enabled_by_an_earlier_unit(self):
+        obs = observation(
+            farmer=(2, 2),
+            hand_positions=[(2, 2)],
+            seeds={"CARROT": 1},
+        )
+        obs["farms"][0]["tiles"][2][2] = {"kind": "WEED"}
+        action = {
+            "farmer": ["DIG"],
+            "hands": [["PLANT", "CARROT"]],
+            "market": [],
+        }
+
+        self.assertEqual(inspect_action(obs, action), ())
+        self.assertEqual(guard_action(obs, action), action)
+
+    def test_shared_shed_is_consumed_in_farmer_then_hands_order(self):
+        obs = observation(farmer=(4, 4), hand_positions=[(4, 4)])
+        obs["private"]["shed"] = {"CARROT": 1}
+        action = {
+            "farmer": ["PICKUP", "CARROT", 1],
+            "hands": [["PICKUP", "CARROT", 1]],
+            "market": [],
+        }
+
+        issues = inspect_action(obs, action)
+        guarded = guard_action(obs, action)
+
+        self.assertEqual(
+            [(issue.code, issue.path) for issue in issues],
+            [("unit.no_effect", "$.hands[0]")],
+        )
+        self.assertEqual(guarded["farmer"], ["PICKUP", "CARROT", 1])
+        self.assertEqual(guarded["hands"], [["PASS"]])
+
+    def test_sequential_inspection_and_guard_do_not_mutate_observation(self):
+        obs = observation(farmer=(2, 2), hand_positions=[(2, 2)])
+        obs["farms"][0]["tiles"][2][2] = {
+            "kind": "PLANT",
+            "crop": "CARROT",
+            "planted_day": 0,
+            "watered_today": False,
+            "yield_units": 1,
+            "fertilized_until_day": -1,
+        }
+        original = copy.deepcopy(obs)
+        action = {
+            "farmer": ["WATER"],
+            "hands": [["WATER"]],
+            "market": [],
+        }
+
+        issues = inspect_action(obs, action)
+        guarded = guard_action(obs, action)
+
+        self.assertEqual(
+            [(issue.code, issue.path) for issue in issues],
+            [("unit.no_effect", "$.hands[0]")],
+        )
+        self.assertEqual(guarded["hands"], [["PASS"]])
+        self.assertEqual(obs, original)
+
+    def test_reports_inventory_destroyed_by_a_shed_overflow(self):
+        obs = observation(farmer=(4, 4))
+        obs["private"]["shed"] = {"WHEAT": 99}
+        obs["private"]["inventories"][0] = {"CARROT": 3}
+
+        issues = inspect_action(
+            obs,
+            {"farmer": ["DROP"], "hands": [], "market": []},
+        )
+
+        self.assertEqual(len(issues), 1)
+        self.assertEqual(issues[0].severity, "LOSSY")
+        self.assertEqual(issues[0].code, "shed.drop_overflow")
+        self.assertEqual(issues[0].path, "$.farmer")
+        self.assertIn("2", issues[0].message)
+
+    def test_guard_blocks_a_drop_that_would_destroy_inventory(self):
+        obs = observation(farmer=(4, 4))
+        obs["private"]["shed"] = {"WHEAT": 99}
+        obs["private"]["inventories"][0] = {"CARROT": 3}
+
+        guarded = guard_action(
+            obs,
+            {"farmer": ["DROP"], "hands": [], "market": []},
+        )
+
+        self.assertEqual(guarded["farmer"], ["PASS"])
+
+    def test_guard_reprojects_later_units_after_blocking_a_lossy_drop(self):
+        obs = observation(farmer=(4, 4), hand_positions=[(4, 4)])
+        obs["private"]["shed"] = {"WHEAT": 99}
+        obs["private"]["inventories"] = [
+            {"CARROT": 2},
+            {"MELON": 1},
+        ]
+        action = {
+            "farmer": ["DROP"],
+            "hands": [["DROP"]],
+            "market": [],
+        }
+
+        guarded = guard_action(obs, action)
+
+        self.assertEqual(guarded["farmer"], ["PASS"])
+        self.assertEqual(guarded["hands"], [["DROP"]])
+
+    def test_guard_keeps_a_drop_that_fits_in_the_shed(self):
+        obs = observation(farmer=(4, 4))
+        obs["private"]["shed"] = {"WHEAT": 98}
+        obs["private"]["inventories"][0] = {"CARROT": 2}
+        action = {"farmer": ["DROP"], "hands": [], "market": []}
+
+        self.assertEqual(inspect_action(obs, action), ())
+        self.assertEqual(guard_action(obs, action), action)
+
+    def test_reports_and_blocks_fertilizer_that_adds_no_coverage(self):
+        obs = observation(farmer=(2, 2))
+        obs["farms"][0]["tiles"][2][2] = {
+            "kind": "PLANT",
+            "crop": "CARROT",
+            "planted_day": 0,
+            "watered_today": False,
+            "yield_units": 1,
+            "fertilized_until_day": 2,
+        }
+        obs["private"]["inventories"][0] = {"FERTILIZER": 1}
+        action = {"farmer": ["FERTILIZE"], "hands": [], "market": []}
+
+        issues = inspect_action(obs, action)
+        guarded = guard_action(obs, action)
+
+        self.assertEqual(len(issues), 1)
+        self.assertEqual(issues[0].severity, "LOSSY")
+        self.assertEqual(issues[0].code, "fertilize.redundant")
+        self.assertEqual(issues[0].path, "$.farmer")
+        self.assertEqual(guarded["farmer"], ["PASS"])
 
 
 if __name__ == "__main__":

@@ -195,12 +195,14 @@ Completed in the first slice:
 - paired-seat tournament runner with candidate-relative outcomes and seat delta;
 - JSON/CSV reports with action latency, issue counts, package version, and engine/candidate hashes;
 - fail-closed structural action guard covering hand counts, operation shape, market limits, and atomic seed overcommitment;
-- explicit step-718 drop-and-sell behavior in the baseline.
+- farmer-then-hands scratch-state validation for sequential unit no-ops, shed overflow, and redundant fertilizer;
+- capacity-safe step-718 drop/place-and-sell behavior in the baseline.
 
 Remaining:
 
 - Build observation fixtures from real replays.
-- Complete the sequential state-aware no-op/loss detector.
+- Extend state-aware projection through market orders without guessing opponent-dependent prices.
+- Tighten terminal `PLACE` classification and non-destructive partial-request reporting.
 - Add environment regression tests for watering, crop production, workers, market execution, overflow, and step-718 liquidation.
 - Run and archive the 1,000-game reliability soak.
 

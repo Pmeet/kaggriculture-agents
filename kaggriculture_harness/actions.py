@@ -1,4 +1,5 @@
 from collections import Counter
+from copy import deepcopy
 from dataclasses import dataclass
 from typing import Literal
 
@@ -9,6 +10,13 @@ class Issue:
     code: str
     path: str
     message: str
+
+
+@dataclass(frozen=True)
+class _UnitOutcome:
+    has_effect: bool
+    dropped_units: int = 0
+    redundant_fertilizer: bool = False
 
 
 _CROPS = {"WHEAT", "CARROT", "TOMATO", "STRAWBERRY", "MELON"}
@@ -54,6 +62,8 @@ _TERMINAL_PURCHASE_OPS = {
     "HIRE",
     "BUY_LAND",
 }
+_TURNS_PER_DAY = 24
+_SHED_CAPACITY = 100
 
 
 def _is_positive_integer(value):
@@ -141,6 +151,129 @@ def _inspect_unit_action(obs, path, position, action):
             message="Movement would leave the farm and be ignored.",
         )
     ]
+
+
+def _prepare_unit_actions(
+    obs,
+    farmer_action,
+    hand_actions,
+    blocked_crops,
+):
+    player = obs["player"]
+    farm = obs["farms"][player]
+    entries = [
+        ("$.farmer", farm["farmer"], farmer_action),
+        *[
+            (f"$.hands[{index}]", position, action)
+            for index, (position, action) in enumerate(
+                zip(farm["hands"], hand_actions, strict=True)
+            )
+        ],
+    ]
+    prepared = []
+    for path, position, action in entries:
+        operation = action[0]
+        if operation == "PLANT" and action[1] in blocked_crops:
+            prepared.append(["PASS"])
+        elif (
+            obs["step"] >= 718
+            and operation not in _TERMINAL_ALLOWED_UNIT_OPS
+        ):
+            prepared.append(["PASS"])
+        elif _inspect_unit_action(obs, path, position, action):
+            prepared.append(["PASS"])
+        else:
+            prepared.append(action)
+    return prepared
+
+
+def _dry_run_unit_actions(obs, unit_actions, *, fail_closed_lossy=False):
+    if all(action == ["PASS"] for action in unit_actions):
+        return tuple(_UnitOutcome(has_effect=False) for _ in unit_actions)
+
+    from kaggle_environments.envs.kaggriculture.kaggriculture import (
+        _apply_unit_action,
+    )
+
+    player = obs["player"]
+    scratch_farm = deepcopy(obs["farms"][player])
+    scratch_private = deepcopy(obs["private"])
+    board_size = len(scratch_farm["tiles"])
+    day = obs.get("day", obs["step"] // _TURNS_PER_DAY)
+    effects = []
+    for unit_index, action in enumerate(unit_actions):
+        position = None
+        if unit_index == 0:
+            position = scratch_farm["farmer"]
+        elif unit_index - 1 < len(scratch_farm["hands"]):
+            position = scratch_farm["hands"][unit_index - 1]
+        inventory = scratch_private["inventories"][unit_index]
+        shed_room = max(
+            0,
+            _SHED_CAPACITY - sum(scratch_private["shed"].values()),
+        )
+        inventory_total = sum(
+            quantity for quantity in inventory.values() if quantity > 0
+        )
+        half = board_size // 2
+        shed_access_tiles = {
+            (half - 1, half - 1),
+            (half, half - 1),
+            (half - 1, half),
+            (half, half),
+        }
+        tile = None
+        if position is not None:
+            tile = scratch_farm["tiles"][position[1]][position[0]]
+        drop_overflow = 0
+        if (
+            action[0] == "DROP"
+            and position is not None
+            and tuple(position) in shed_access_tiles
+            and tile != "LOCKED"
+        ):
+            drop_overflow = max(0, inventory_total - shed_room)
+        redundant_fertilizer = (
+            action[0] == "FERTILIZE"
+            and isinstance(tile, dict)
+            and tile.get("kind") == "PLANT"
+            and inventory.get("FERTILIZER", 0) > 0
+            and tile.get("fertilized_until_day", -1) >= day + 2
+        )
+        if fail_closed_lossy and (drop_overflow or redundant_fertilizer):
+            effects.append(
+                _UnitOutcome(
+                    has_effect=False,
+                    dropped_units=drop_overflow,
+                    redundant_fertilizer=redundant_fertilizer,
+                )
+            )
+            continue
+        before_farm = deepcopy(scratch_farm)
+        before_private = deepcopy(scratch_private)
+        _apply_unit_action(
+            scratch_farm,
+            scratch_private,
+            unit_index,
+            action,
+            board_size,
+            day,
+            _TURNS_PER_DAY,
+            _SHED_CAPACITY,
+        )
+        has_effect = (
+            scratch_farm != before_farm or scratch_private != before_private
+        )
+        effects.append(
+            _UnitOutcome(
+                has_effect=has_effect,
+                dropped_units=drop_overflow if has_effect else 0,
+                redundant_fertilizer=(
+                    redundant_fertilizer if has_effect else False
+                ),
+            )
+        )
+    return tuple(effects)
 
 
 def inspect_action(obs, action):
@@ -300,6 +433,76 @@ def inspect_action(obs, action):
                     ),
                 )
             )
+    normalized_observed_hands = []
+    if isinstance(hand_actions, list):
+        normalized_observed_hands = [
+            _normalize_unit_action(hand_action)
+            for hand_action in hand_actions[: len(farm["hands"])]
+        ]
+    normalized_observed_hands.extend(
+        [["PASS"] for _ in range(len(farm["hands"]) - len(normalized_observed_hands))]
+    )
+    prepared_unit_actions = _prepare_unit_actions(
+        obs,
+        normalized_farmer_action,
+        normalized_observed_hands,
+        blocked_crops,
+    )
+    unit_effects = _dry_run_unit_actions(obs, prepared_unit_actions)
+    original_unit_actions = [
+        normalized_farmer_action,
+        *normalized_observed_hands,
+    ]
+    unit_paths = [
+        "$.farmer",
+        *[f"$.hands[{index}]" for index in range(len(farm["hands"]))],
+    ]
+    for path, original, prepared, outcome in zip(
+        unit_paths,
+        original_unit_actions,
+        prepared_unit_actions,
+        unit_effects,
+        strict=True,
+    ):
+        if (
+            original[0] != "PASS"
+            and prepared == original
+            and not outcome.has_effect
+        ):
+            issues.append(
+                Issue(
+                    severity="NO_OP",
+                    code="unit.no_effect",
+                    path=path,
+                    message=(
+                        f"{original[0]} has no effect in sequential unit order."
+                    ),
+                )
+            )
+        if outcome.dropped_units:
+            issues.append(
+                Issue(
+                    severity="LOSSY",
+                    code="shed.drop_overflow",
+                    path=path,
+                    message=(
+                        f"DROP would destroy {outcome.dropped_units} inventory "
+                        "units beyond shed capacity."
+                    ),
+                )
+            )
+        if outcome.redundant_fertilizer:
+            issues.append(
+                Issue(
+                    severity="LOSSY",
+                    code="fertilize.redundant",
+                    path=path,
+                    message=(
+                        "FERTILIZE would consume fertilizer without extending "
+                        "coverage."
+                    ),
+                )
+            )
     return tuple(issues)
 
 
@@ -325,30 +528,6 @@ def guard_action(obs, action):
         [["PASS"] for _ in range(hand_count - len(normalized_hands))]
     )
     normalized_farmer = _normalize_unit_action(action.get("farmer"))
-    player = obs["player"]
-    farm = obs["farms"][player]
-    if _inspect_unit_action(obs, "$.farmer", farm["farmer"], normalized_farmer):
-        normalized_farmer = ["PASS"]
-    normalized_hands = [
-        ["PASS"]
-        if _inspect_unit_action(
-            obs,
-            f"$.hands[{index}]",
-            farm["hands"][index],
-            hand_action,
-        )
-        else hand_action
-        for index, hand_action in enumerate(normalized_hands)
-    ]
-    if obs["step"] >= 718:
-        if normalized_farmer[0] not in _TERMINAL_ALLOWED_UNIT_OPS:
-            normalized_farmer = ["PASS"]
-        normalized_hands = [
-            hand_action
-            if hand_action[0] in _TERMINAL_ALLOWED_UNIT_OPS
-            else ["PASS"]
-            for hand_action in normalized_hands
-        ]
     planting_counts = Counter(
         unit_action[1]
         for unit_action in [normalized_farmer, *normalized_hands]
@@ -358,14 +537,29 @@ def guard_action(obs, action):
     overcommitted_crops = {
         crop for crop, count in planting_counts.items() if count > seeds.get(crop, 0)
     }
-    if normalized_farmer[0] == "PLANT" and normalized_farmer[1] in overcommitted_crops:
-        normalized_farmer = ["PASS"]
-    normalized_hands = [
-        ["PASS"]
-        if hand_action[0] == "PLANT" and hand_action[1] in overcommitted_crops
-        else hand_action
-        for hand_action in normalized_hands
+    prepared_unit_actions = _prepare_unit_actions(
+        obs,
+        normalized_farmer,
+        normalized_hands,
+        overcommitted_crops,
+    )
+    unit_effects = _dry_run_unit_actions(
+        obs,
+        prepared_unit_actions,
+        fail_closed_lossy=True,
+    )
+    guarded_unit_actions = [
+        prepared
+        if prepared[0] == "PASS" or outcome.has_effect
+        else ["PASS"]
+        for prepared, outcome in zip(
+            prepared_unit_actions,
+            unit_effects,
+            strict=True,
+        )
     ]
+    normalized_farmer = guarded_unit_actions[0]
+    normalized_hands = guarded_unit_actions[1:]
     market = action.get("market")
     if not isinstance(market, list):
         market = []

@@ -12,6 +12,8 @@ def observation(
     day=0,
     step=None,
     inventories=None,
+    hand_positions=None,
+    market_prices=None,
 ):
     tiles = [[None for _ in range(10)] for _ in range(10)]
     tiles[4][4] = tile
@@ -25,7 +27,9 @@ def observation(
                 "money": money,
                 "tiles": tiles,
                 "farmer": [4, 4],
-                "hands": [],
+                "hands": [
+                    list(position) for position in (hand_positions or [])
+                ],
                 "unlocked_quadrants": ["NW"],
                 "hires_today": 0,
             },
@@ -36,7 +40,7 @@ def observation(
             "seeds": seeds or {},
             "inventories": inventories or [{}],
         },
-        "market": {"inventory": {}, "prices": {}},
+        "market": {"inventory": {}, "prices": market_prices or {}},
         "town": {"unlocked_shops": []},
     }
 
@@ -98,6 +102,116 @@ class AgentStrategyTest(unittest.TestCase):
         self.assertCountEqual(
             action["market"],
             [["SELL", "CARROT", 7], ["SELL", "MILK", 2]],
+        )
+
+    def test_step_718_places_only_inventory_that_fits_in_the_shed(self):
+        action = agent(
+            observation(
+                step=718,
+                day=29,
+                shed={"WHEAT": 99},
+                inventories=[{"CARROT": 3}],
+            )
+        )
+
+        self.assertEqual(action["farmer"], ["PLACE", "CARROT", 1])
+        self.assertCountEqual(
+            action["market"],
+            [["SELL", "WHEAT", 99], ["SELL", "CARROT", 1]],
+        )
+
+    def test_step_718_does_not_drop_when_the_shed_is_full(self):
+        action = agent(
+            observation(
+                step=718,
+                day=29,
+                shed={"WHEAT": 100},
+                inventories=[{"CARROT": 3}],
+            )
+        )
+
+        self.assertEqual(action["farmer"], ["PASS"])
+        self.assertEqual(action["market"], [["SELL", "WHEAT", 100]])
+
+    def test_step_718_reserves_capacity_for_a_later_sellable_inventory(self):
+        action = agent(
+            observation(
+                step=718,
+                day=29,
+                shed={"WHEAT": 99},
+                inventories=[{"GOOSE": 1}, {"CARROT": 1}],
+                hand_positions=[(4, 4)],
+                market_prices={"CARROT": 20},
+            )
+        )
+
+        self.assertEqual(action["farmer"], ["PASS"])
+        self.assertEqual(action["hands"], [["DROP"]])
+        self.assertCountEqual(
+            action["market"],
+            [["SELL", "WHEAT", 99], ["SELL", "CARROT", 1]],
+        )
+
+    def test_step_718_prioritizes_the_more_valuable_unit_when_capacity_is_tight(self):
+        action = agent(
+            observation(
+                step=718,
+                day=29,
+                shed={"WHEAT": 99},
+                inventories=[{"CARROT": 1}, {"MELON": 1}],
+                hand_positions=[(4, 4)],
+                market_prices={"CARROT": 20, "MELON": 100},
+            )
+        )
+
+        self.assertEqual(action["farmer"], ["PASS"])
+        self.assertEqual(action["hands"], [["DROP"]])
+        self.assertCountEqual(
+            action["market"],
+            [["SELL", "WHEAT", 99], ["SELL", "MELON", 1]],
+        )
+
+    def test_step_718_maximizes_recoverable_value_across_product_quantities(self):
+        action = agent(
+            observation(
+                step=718,
+                day=29,
+                shed={"WHEAT": 98},
+                inventories=[{"TOMATO": 1, "CARROT": 2}],
+                market_prices={"TOMATO": 40, "CARROT": 35},
+            )
+        )
+
+        self.assertEqual(action["farmer"], ["PLACE", "CARROT", 2])
+        self.assertCountEqual(
+            action["market"],
+            [["SELL", "WHEAT", 98], ["SELL", "CARROT", 2]],
+        )
+
+    def test_step_718_optimizes_capacity_across_multiple_units(self):
+        action = agent(
+            observation(
+                step=718,
+                day=29,
+                shed={"WHEAT": 98},
+                inventories=[
+                    {"MELON": 1, "CARROT": 2},
+                    {"TOMATO": 1},
+                ],
+                hand_positions=[(4, 4)],
+                market_prices={"MELON": 100, "CARROT": 60, "TOMATO": 70},
+            )
+        )
+
+        self.assertEqual(action["farmer"], ["PLACE", "MELON", 1])
+        self.assertEqual(action["hands"], [["DROP"]])
+        self.assertCountEqual(
+            action["market"],
+            [
+                ["SELL", "WHEAT", 98],
+                ["SELL", "TOMATO", 1],
+                ["SELL", "MELON", 1],
+            ],
         )
 
 

@@ -18,11 +18,12 @@ This file is the durable handoff for any AI agent continuing work in this reposi
 
 - Workspace: `D:\VS Code\Projects\kaggriculture`
 - Current branch: `feature/1-correctness-harness`
-- Recent committed checkpoints:
+- Key implementation checkpoints:
   - `0a6499c Build local Kaggriculture evaluation harness`
   - `e984fc9 Prevent sequential action and terminal inventory loss`
   - `c659c54 Document agent handoff and next steps`
   - `b7fdcc2 Preserve sequential market action semantics`
+  - `b7b5adc Project fixed market affordability conservatively`
 - No Git remote is configured (`git remote -v` is empty).
 - The user authorized pushing repository changes, but did not authorize creating a GitHub repository. Ask for the remote URL or explicit permission to create a private repository before adding one.
 - No Kaggle submission or upload has been made.

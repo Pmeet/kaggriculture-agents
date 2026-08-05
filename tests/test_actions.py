@@ -65,13 +65,15 @@ class ActionGuardTest(unittest.TestCase):
         self.assertEqual(issues[0].path, "$")
 
     def test_reports_market_orders_that_the_engine_would_drop(self):
+        obs = observation()
+        obs["private"]["shed"] = {"CARROT": 10}
         action = {
             "farmer": ["PASS"],
             "hands": [],
             "market": [["SELL", "CARROT", 1] for _ in range(11)],
         }
 
-        issues = inspect_action(observation(), action)
+        issues = inspect_action(obs, action)
 
         self.assertEqual(len(issues), 1)
         self.assertEqual(issues[0].severity, "LOSSY")
@@ -116,6 +118,39 @@ class ActionGuardTest(unittest.TestCase):
                 ("unit.malformed", "$.farmer"),
                 ("market.order_malformed", "$.market[0]"),
             },
+        )
+
+    def test_reports_market_pass_as_an_off_contract_order(self):
+        issues = inspect_action(
+            observation(),
+            {
+                "farmer": ["PASS"],
+                "hands": [],
+                "market": [["PASS"]],
+            },
+        )
+
+        self.assertEqual(
+            [(issue.code, issue.path) for issue in issues],
+            [("market.order_malformed", "$.market[0]")],
+        )
+
+    def test_malformed_engine_executable_buy_prevents_false_sell_empty(self):
+        issues = inspect_action(
+            observation(),
+            {
+                "farmer": ["PASS"],
+                "hands": [],
+                "market": [
+                    ["BUY_PRODUCT", "WHEAT", "1"],
+                    ["SELL", "WHEAT", 1],
+                ],
+            },
+        )
+
+        self.assertEqual(
+            [(issue.code, issue.path) for issue in issues],
+            [("market.order_malformed", "$.market[0]")],
         )
 
     def test_reports_a_hand_count_that_does_not_match_the_observation(self):
@@ -257,9 +292,11 @@ class ActionGuardTest(unittest.TestCase):
         self.assertEqual(guarded["hands"], [["PASS"]])
 
     def test_validates_only_the_first_ten_market_slots(self):
+        obs = observation()
+        obs["private"]["shed"] = {"CARROT": 9}
         first_nine = [["SELL", "CARROT", 1] for _ in range(9)]
         guarded = guard_action(
-            observation(),
+            obs,
             {
                 "farmer": ["PASS"],
                 "hands": [],
@@ -284,6 +321,176 @@ class ActionGuardTest(unittest.TestCase):
         )
 
         self.assertEqual(guarded["market"], [])
+
+    def test_reports_a_later_sell_after_an_earlier_order_exhausts_inventory(self):
+        obs = observation()
+        obs["private"]["shed"] = {"CARROT": 1}
+
+        issues = inspect_action(
+            obs,
+            {
+                "farmer": ["PASS"],
+                "hands": [],
+                "market": [
+                    ["SELL", "CARROT", 1],
+                    ["SELL", "CARROT", 1],
+                ],
+            },
+        )
+
+        self.assertEqual(len(issues), 1)
+        self.assertEqual(issues[0].severity, "NO_OP")
+        self.assertEqual(issues[0].code, "market.sell_empty")
+        self.assertEqual(issues[0].path, "$.market[1]")
+
+    def test_sell_availability_uses_the_post_unit_shed_after_pickup(self):
+        obs = observation(farmer=(4, 4))
+        obs["private"]["shed"] = {"CARROT": 1}
+
+        issues = inspect_action(
+            obs,
+            {
+                "farmer": ["PICKUP", "CARROT", 1],
+                "hands": [],
+                "market": [["SELL", "CARROT", 1]],
+            },
+        )
+
+        self.assertEqual(len(issues), 1)
+        self.assertEqual(issues[0].severity, "NO_OP")
+        self.assertEqual(issues[0].code, "market.sell_empty")
+        self.assertEqual(issues[0].path, "$.market[0]")
+
+    def test_terminal_inspection_uses_the_engine_executed_unit_state(self):
+        obs = observation(farmer=(4, 4), step=718)
+        obs["private"]["shed"] = {"CARROT": 1}
+
+        issues = inspect_action(
+            obs,
+            {
+                "farmer": ["PICKUP", "CARROT", 1],
+                "hands": [],
+                "market": [["SELL", "CARROT", 1]],
+            },
+        )
+
+        self.assertEqual(
+            [(issue.code, issue.path) for issue in issues],
+            [
+                ("terminal.unit_action", "$.farmer"),
+                ("market.sell_empty", "$.market[0]"),
+            ],
+        )
+
+    def test_guard_preserves_slot_for_a_sell_exhausted_between_valid_orders(self):
+        obs = observation(farmer=(4, 4))
+        obs["private"]["shed"] = {"MELON": 1}
+        obs["private"]["inventories"][0] = {"CARROT": 1}
+        action = {
+            "farmer": ["DROP"],
+            "hands": [],
+            "market": [
+                ["SELL", "CARROT", 1],
+                ["SELL", "CARROT", 1],
+                ["SELL", "MELON", 1],
+            ],
+        }
+
+        guarded = guard_action(obs, action)
+
+        self.assertEqual(guarded["farmer"], ["DROP"])
+        self.assertEqual(
+            guarded["market"],
+            [
+                ["SELL", "CARROT", 1],
+                [],
+                ["SELL", "MELON", 1],
+            ],
+        )
+
+    def test_guard_preserves_a_malformed_interior_market_slot(self):
+        obs = observation()
+        obs["private"]["shed"] = {"MELON": 1}
+        action = {
+            "farmer": ["PASS"],
+            "hands": [],
+            "market": [
+                ["SELL", "CARROT", True],
+                ["SELL", "MELON", 1],
+            ],
+        }
+
+        issues = inspect_action(obs, action)
+        guarded = guard_action(obs, action)
+
+        self.assertEqual(
+            [(issue.code, issue.path) for issue in issues],
+            [("market.order_malformed", "$.market[0]")],
+        )
+        self.assertEqual(
+            guarded["market"],
+            [[], ["SELL", "MELON", 1]],
+        )
+
+    def test_guard_projects_market_from_fail_closed_unit_state(self):
+        obs = observation(farmer=(4, 4))
+        obs["private"]["shed"] = {"WHEAT": 98, "MELON": 1}
+        obs["private"]["inventories"][0] = {"CARROT": 2}
+        action = {
+            "farmer": ["DROP"],
+            "hands": [],
+            "market": [
+                ["SELL", "CARROT", 1],
+                ["SELL", "MELON", 1],
+            ],
+        }
+
+        issues = inspect_action(obs, action)
+        guarded = guard_action(obs, action)
+
+        self.assertEqual(
+            [(issue.code, issue.path) for issue in issues],
+            [("shed.drop_overflow", "$.farmer")],
+        )
+        self.assertEqual(guarded["farmer"], ["PASS"])
+        self.assertEqual(
+            guarded["market"],
+            [[], ["SELL", "MELON", 1]],
+        )
+
+    def test_conditional_product_buy_prevents_a_false_empty_sell_claim(self):
+        action = {
+            "farmer": ["PASS"],
+            "hands": [],
+            "market": [
+                ["BUY_PRODUCT", "WHEAT", 1],
+                ["SELL", "WHEAT", 1],
+            ],
+        }
+        obs = observation()
+
+        self.assertEqual(inspect_action(obs, action), ())
+        self.assertEqual(guard_action(obs, action), action)
+
+    def test_conditional_product_buy_has_a_bounded_sell_maximum(self):
+        issues = inspect_action(
+            observation(),
+            {
+                "farmer": ["PASS"],
+                "hands": [],
+                "market": [
+                    ["BUY_PRODUCT", "WHEAT", 2],
+                    ["SELL", "WHEAT", 1],
+                    ["SELL", "WHEAT", 1],
+                    ["SELL", "WHEAT", 1],
+                ],
+            },
+        )
+
+        self.assertEqual(
+            [(issue.code, issue.path) for issue in issues],
+            [("market.sell_empty", "$.market[3]")],
+        )
 
     def test_fails_all_overcommitted_plant_requests_closed(self):
         guarded = guard_action(

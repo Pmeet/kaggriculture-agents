@@ -19,6 +19,13 @@ class _UnitOutcome:
     redundant_fertilizer: bool = False
 
 
+@dataclass(frozen=True)
+class _UnitProjection:
+    outcomes: tuple[_UnitOutcome, ...]
+    farm: object
+    private: object
+
+
 _CROPS = {"WHEAT", "CARROT", "TOMATO", "STRAWBERRY", "MELON"}
 _PRODUCTS = _CROPS | {"MILK", "WOOL", "EGG", "FERTILIZER"}
 _ANIMALS = {"GOOSE", "COW", "SHEEP"}
@@ -125,6 +132,34 @@ def _normalize_market_order(order):
     return None
 
 
+def _engine_executable_market_order(order):
+    if not isinstance(order, list) or not order:
+        return None
+    operation = order[0]
+    if operation in {"HIRE", "BUY_LAND"}:
+        return [operation]
+    if operation not in {"BUY_SEED", "BUY_PRODUCT", "BUY_ANIMAL", "SELL"}:
+        return None
+    if len(order) < 3 or not isinstance(order[1], str):
+        return None
+    try:
+        quantity = int(order[2])
+    except (TypeError, ValueError, OverflowError):
+        return None
+    if quantity <= 0:
+        return None
+    item = order[1]
+    if operation == "BUY_SEED" and item in _CROPS:
+        return [operation, item, quantity]
+    if operation == "BUY_PRODUCT" and item in {"WHEAT", "FERTILIZER"}:
+        return [operation, item, quantity]
+    if operation == "BUY_ANIMAL" and item in _ANIMALS:
+        return [operation, item, quantity]
+    if operation == "SELL" and item in _PRODUCTS:
+        return [operation, item, quantity]
+    return None
+
+
 def _inspect_unit_action(obs, path, position, action):
     if (
         not isinstance(action, list)
@@ -158,6 +193,8 @@ def _prepare_unit_actions(
     farmer_action,
     hand_actions,
     blocked_crops,
+    *,
+    suppress_terminal=False,
 ):
     player = obs["player"]
     farm = obs["farms"][player]
@@ -176,7 +213,8 @@ def _prepare_unit_actions(
         if operation == "PLANT" and action[1] in blocked_crops:
             prepared.append(["PASS"])
         elif (
-            obs["step"] >= 718
+            suppress_terminal
+            and obs["step"] >= 718
             and operation not in _TERMINAL_ALLOWED_UNIT_OPS
         ):
             prepared.append(["PASS"])
@@ -188,16 +226,22 @@ def _prepare_unit_actions(
 
 
 def _dry_run_unit_actions(obs, unit_actions, *, fail_closed_lossy=False):
+    player = obs["player"]
+    scratch_farm = deepcopy(obs["farms"][player])
+    scratch_private = deepcopy(obs["private"])
     if all(action == ["PASS"] for action in unit_actions):
-        return tuple(_UnitOutcome(has_effect=False) for _ in unit_actions)
+        return _UnitProjection(
+            outcomes=tuple(
+                _UnitOutcome(has_effect=False) for _ in unit_actions
+            ),
+            farm=scratch_farm,
+            private=scratch_private,
+        )
 
     from kaggle_environments.envs.kaggriculture.kaggriculture import (
         _apply_unit_action,
     )
 
-    player = obs["player"]
-    scratch_farm = deepcopy(obs["farms"][player])
-    scratch_private = deepcopy(obs["private"])
     board_size = len(scratch_farm["tiles"])
     day = obs.get("day", obs["step"] // _TURNS_PER_DAY)
     effects = []
@@ -273,7 +317,91 @@ def _dry_run_unit_actions(obs, unit_actions, *, fail_closed_lossy=False):
                 ),
             )
         )
-    return tuple(effects)
+    return _UnitProjection(
+        outcomes=tuple(effects),
+        farm=scratch_farm,
+        private=scratch_private,
+    )
+
+
+def _inspect_market_sells(shed, market):
+    availability_ranges = {
+        item: (max(0, quantity), max(0, quantity))
+        for item, quantity in shed.items()
+    }
+    issues = []
+    for index, order in enumerate(market[:10]):
+        normalized_order = _normalize_market_order(order)
+        is_contract_valid = normalized_order is not None
+        projected_order = (
+            normalized_order
+            if normalized_order is not None
+            else _engine_executable_market_order(order)
+        )
+        if projected_order is None:
+            continue
+        operation = projected_order[0]
+        if operation == "BUY_PRODUCT":
+            _, item, quantity = projected_order
+            minimum, maximum = availability_ranges.get(item, (0, 0))
+            availability_ranges[item] = (minimum, maximum + quantity)
+            continue
+        if operation != "SELL":
+            continue
+        _, item, quantity = projected_order
+        minimum, maximum = availability_ranges.get(item, (0, 0))
+        if maximum == 0 and is_contract_valid:
+            issues.append(
+                Issue(
+                    severity="NO_OP",
+                    code="market.sell_empty",
+                    path=f"$.market[{index}]",
+                    message="SELL has no available post-order shed inventory.",
+                )
+            )
+        availability_ranges[item] = (
+            max(0, minimum - quantity),
+            max(0, maximum - quantity),
+        )
+    return issues
+
+
+def _guard_market_orders(obs, shed, market):
+    availability_ranges = {
+        item: (max(0, quantity), max(0, quantity))
+        for item, quantity in shed.items()
+    }
+    guarded = []
+    for order in market[:10]:
+        normalized_order = _normalize_market_order(order)
+        if normalized_order is None:
+            guarded.append([])
+            continue
+        operation = normalized_order[0]
+        if (
+            obs["step"] >= 718
+            and operation in _TERMINAL_PURCHASE_OPS
+        ):
+            guarded.append([])
+            continue
+        if operation == "SELL":
+            _, item, quantity = normalized_order
+            minimum, maximum = availability_ranges.get(item, (0, 0))
+            if maximum == 0:
+                guarded.append([])
+                continue
+            availability_ranges[item] = (
+                max(0, minimum - quantity),
+                max(0, maximum - quantity),
+            )
+        elif operation == "BUY_PRODUCT":
+            _, item, quantity = normalized_order
+            minimum, maximum = availability_ranges.get(item, (0, 0))
+            availability_ranges[item] = (minimum, maximum + quantity)
+        guarded.append(normalized_order)
+    while guarded and guarded[-1] == []:
+        guarded.pop()
+    return guarded
 
 
 def inspect_action(obs, action):
@@ -448,7 +576,8 @@ def inspect_action(obs, action):
         normalized_observed_hands,
         blocked_crops,
     )
-    unit_effects = _dry_run_unit_actions(obs, prepared_unit_actions)
+    unit_projection = _dry_run_unit_actions(obs, prepared_unit_actions)
+    unit_effects = unit_projection.outcomes
     original_unit_actions = [
         normalized_farmer_action,
         *normalized_observed_hands,
@@ -464,8 +593,13 @@ def inspect_action(obs, action):
         unit_effects,
         strict=True,
     ):
+        terminal_disallowed = (
+            obs["step"] >= 718
+            and original[0] not in _TERMINAL_ALLOWED_UNIT_OPS
+        )
         if (
-            original[0] != "PASS"
+            not terminal_disallowed
+            and original[0] != "PASS"
             and prepared == original
             and not outcome.has_effect
         ):
@@ -491,7 +625,7 @@ def inspect_action(obs, action):
                     ),
                 )
             )
-        if outcome.redundant_fertilizer:
+        if not terminal_disallowed and outcome.redundant_fertilizer:
             issues.append(
                 Issue(
                     severity="LOSSY",
@@ -503,6 +637,10 @@ def inspect_action(obs, action):
                     ),
                 )
             )
+    if isinstance(market, list):
+        issues.extend(
+            _inspect_market_sells(unit_projection.private["shed"], market)
+        )
     return tuple(issues)
 
 
@@ -542,12 +680,14 @@ def guard_action(obs, action):
         normalized_farmer,
         normalized_hands,
         overcommitted_crops,
+        suppress_terminal=True,
     )
-    unit_effects = _dry_run_unit_actions(
+    unit_projection = _dry_run_unit_actions(
         obs,
         prepared_unit_actions,
         fail_closed_lossy=True,
     )
+    unit_effects = unit_projection.outcomes
     guarded_unit_actions = [
         prepared
         if prepared[0] == "PASS" or outcome.has_effect
@@ -563,17 +703,11 @@ def guard_action(obs, action):
     market = action.get("market")
     if not isinstance(market, list):
         market = []
-    normalized_market = []
-    for order in market[:10]:
-        normalized_order = _normalize_market_order(order)
-        if (
-            normalized_order is not None
-            and not (
-                obs["step"] >= 718
-                and normalized_order[0] in _TERMINAL_PURCHASE_OPS
-            )
-        ):
-            normalized_market.append(normalized_order)
+    normalized_market = _guard_market_orders(
+        obs,
+        unit_projection.private["shed"],
+        market,
+    )
     return {
         "farmer": normalized_farmer,
         "hands": normalized_hands,

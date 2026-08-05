@@ -18,10 +18,10 @@ This file is the durable handoff for any AI agent continuing work in this reposi
 
 - Workspace: `D:\VS Code\Projects\kaggriculture`
 - Current branch: `feature/1-correctness-harness`
-- Working tree was clean before this handoff file was created.
-- Current commits:
+- Recent committed checkpoints before the current market-projection work:
   - `0a6499c Build local Kaggriculture evaluation harness`
   - `e984fc9 Prevent sequential action and terminal inventory loss`
+  - `c659c54 Document agent handoff and next steps`
 - No Git remote is configured (`git remote -v` is empty).
 - The user authorized pushing repository changes, but did not authorize creating a GitHub repository. Ask for the remote URL or explicit permission to create a private repository before adding one.
 - No Kaggle submission or upload has been made.
@@ -32,7 +32,7 @@ This file is the durable handoff for any AI agent continuing work in this reposi
 - Python: 3.12.13.
 - `kaggle-environments`: 1.32.3.
 - Kaggle CLI: 2.2.4.
-- Last full verification: **55 tests passed**, Ruff passed, and `pip check` reported no broken requirements.
+- Last full verification: **65 tests passed**, Ruff passed, and `pip check` reported no broken requirements.
 - Last paired smoke test: six games (`main.py` versus built-in `starter`, seeds 1–3 from both seats), all six reached `DONE`, all tied, and the validator reported zero issues.
 - The first `kaggle-environments` import prints large unrelated OpenSpiel registration warnings. They are harmless here; use process exit codes and final game statuses.
 
@@ -81,24 +81,24 @@ The smoke report is local and ignored. Confirm `all_done_games == 6` and `total_
 - Sequential no-ops are detected, including shared-tile and shared-shed conflicts.
 - Destructive `DROP` overflow and redundant fertilizer are reported as `LOSSY`.
 - `guard_action` fails closed and reprojects later units after suppressing a no-op or lossy action.
+- Market inspection starts from the engine-executed post-unit shed, then tracks guaranteed `SELL` exhaustion in raw slot order. Conditional dynamic product buys widen an availability interval instead of creating false certainty.
+- The guard uses its separate fail-closed post-unit state and replaces rejected interior market slots with engine-inert `[]` placeholders, preserving alignment with the opponent. Trailing inert slots are trimmed.
+- Strict public validation remains separate from engine-faithful inspection projection: off-contract orders are reported malformed even when the permissive engine parser could execute them, and their possible downstream effects are still modeled conservatively.
 - The tournament currently **observes** issues but does not replace the candidate's returned action with `guard_action`.
 
 ## Current limitations and known gaps
 
-Phase 1 remains in progress. The next important gap is state-aware market projection.
+Phase 1 remains in progress. Guaranteed `SELL` availability and market-slot fidelity are implemented; fixed-cost affordability is next.
 
-1. Market orders are structurally normalized, but their sequential effect is not projected.
-2. `guard_action` currently removes malformed market entries. This compacts the first ten slots and can change alignment with the opponent's same-index orders. A faithful guard should preserve an invalid slot as an inert placeholder such as `[]` rather than shifting later orders.
-3. `SELL` availability should start from the **post-unit** scratch shed, so same-turn `DROP`/`PLACE` can enable a sale.
-4. Dynamic `SELL` and `BUY_PRODUCT` prices can depend on the opponent's simultaneous orders. Never declare affordability from the displayed price alone after money becomes opponent-dependent.
-5. Fixed-price `BUY_SEED` and `BUY_ANIMAL`, plus `HIRE` and `BUY_LAND`, can be projected exactly while money is known.
-6. Partial `PICKUP`, `PLACE`, and `SELL` requests leave the remainder at the source; they are not destructive losses. Prefer a distinct `PARTIAL` severity if this is added rather than mislabeling them `LOSSY`.
-7. Terminal `PLACE` classification is still broad. At step 718 it should be considered useful only when the resolved branch deposits a sellable item into the shed.
-8. Real replay-derived observation fixtures, the broader engine regression matrix, and the 1,000-game reliability soak remain undone.
+1. Dynamic `SELL` and `BUY_PRODUCT` prices can depend on the opponent's simultaneous orders. Never declare affordability from the displayed price alone after money becomes opponent-dependent.
+2. Fixed-price `BUY_SEED` and `BUY_ANIMAL`, plus `HIRE` and `BUY_LAND`, still need sequential money projection.
+3. Partial `PICKUP`, `PLACE`, fixed-price purchases, and `SELL` requests leave the unfulfilled remainder in place; they are not destructive losses. Prefer a distinct `PARTIAL` severity if this is added rather than mislabeling them `LOSSY`.
+4. Terminal `PLACE` classification is still broad. At step 718 it should be considered useful only when the resolved branch deposits a sellable item into the shed.
+5. Real replay-derived observation fixtures, the broader engine regression matrix, and the 1,000-game reliability soak remain undone.
 
 ## Exact next TDD slice
 
-No market-projection production code or tests were started before this handoff. Start with a small vertical slice and keep the public APIs unchanged:
+Add fixed-cost affordability to the existing market reducer while keeping the public APIs unchanged:
 
 ```python
 inspect_action(obs, action) -> tuple[Issue, ...]
@@ -107,26 +107,25 @@ guard_action(obs, action) -> dict
 
 Recommended red tests, one at a time:
 
-1. A `SELL CARROT 1` with an empty initial shed is valid when the farmer performs a same-turn valid `DROP` containing one carrot.
-2. A `SELL` with zero post-unit availability reports a guaranteed `NO_OP` and is removed or replaced with an inert slot by the guard.
-3. A `SELL` quantity greater than known post-unit availability reports a non-destructive partial fulfillment without labeling the remainder lost.
-4. A malformed order in market slot 0 does not shift a valid order from slot 1 in guarded output.
-5. A fixed-price `BUY_SEED` with definitely insufficient known money reports a `NO_OP`.
-6. Two fixed-price purchases are evaluated sequentially against the same projected money balance.
-7. `HIRE` reports a `NO_OP` when known money is below the exact Fibonacci-based cost.
-8. `BUY_LAND` reports a `NO_OP` when all quadrants are unlocked or known money is below the next NE → SW → SE cost.
-9. A dynamic-price order that could become affordable because of opponent activity is not reported as a guaranteed no-op.
+1. A `BUY_SEED CARROT 1` at money 19 reports `NO_OP` and is replaced without shifting a later valid slot; money 20 succeeds.
+2. Two fixed-price purchases consume the same projected balance sequentially, so a later order is rejected only after the earlier successful spend.
+3. A partially affordable multi-unit fixed purchase remains non-destructive and leaves the exact residual money available to a later slot.
+4. `BUY_ANIMAL` uses its exact fixed cost and does not require a built structure or spare shed capacity.
+5. Sequential `HIRE` orders use the current day's Fibonacci counter, and a failed hire does not advance that counter.
+6. `BUY_LAND` follows NE, SW, SE costs and reports a guaranteed no-op once all quadrants are unlocked.
+7. After possible `SELL` revenue or a dynamic `BUY_PRODUCT`, do not reject a later fixed purchase unless every possible money branch is below its cost.
+8. Engine-executable but contract-malformed orders remain structurally reported while their possible money/state effects are conservatively projected for inspection.
 
 Suggested implementation direction:
 
-- Refactor the existing unit dry-run to return its post-unit scratch `farm` and `private` state alongside per-unit outcomes.
-- Feed that projected state into a market reducer that processes only the first ten raw slots in index order.
-- Preserve slot positions in guarded output.
-- Track money as exact while only fixed-price deterministic operations occur.
-- After opponent-sensitive sale revenue or dynamic `BUY_PRODUCT` pricing, track a conservative interval/unknown state and only emit a no-op when failure is guaranteed for every possible value.
-- Keep opponent market inventory effects out of exact claims unless proven invariant.
+- Start money at the post-unit farm balance as an exact interval.
+- Use costs WHEAT 10, CARROT 20, TOMATO 50, STRAWBERRY 100, MELON 80; GOOSE 300, COW 400, SHEEP 500; land 1000/2000/4000; and the default hire multiplier with `fib(0) == fib(1) == 1`.
+- Fixed per-unit purchases execute `min(requested, floor(money / cost))` when money is exact and stop their own order on the first failure.
+- A successful `SELL` makes the upper money bound opponent-price-sensitive; dynamic `BUY_PRODUCT` can reduce money but never increase it. Only emit a fixed-affordability no-op when the maximum possible balance is below one unit's cost.
+- Model conditional hire/land success carefully because it changes the cost/state of later attempts. If exact branch tracking is deferred, mark the counter/state unknown and avoid unsound later claims.
+- Keep the competition's default configuration assumption explicit: `farmHandCostMult` is not present in observations.
 
-Do not attempt to recreate the entire concurrent market engine in the first test cycle. Land the guaranteed `SELL` availability and slot-fidelity slice first, run the full suite, then add fixed-cost affordability.
+Do not recreate the entire concurrent price engine in this slice. Land only guaranteed fixed-affordability findings, preserve raw slot positions, and keep dynamic cases conservative.
 
 ## Engine semantics that matter for the next agent
 

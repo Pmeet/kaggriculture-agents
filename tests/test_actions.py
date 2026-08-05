@@ -135,6 +135,21 @@ class ActionGuardTest(unittest.TestCase):
             [("market.order_malformed", "$.market[0]")],
         )
 
+    def test_inspection_never_hashes_an_untrusted_market_operation(self):
+        issues = inspect_action(
+            observation(),
+            {
+                "farmer": ["PASS"],
+                "hands": [],
+                "market": [[[]]],
+            },
+        )
+
+        self.assertEqual(
+            [(issue.code, issue.path) for issue in issues],
+            [("market.order_malformed", "$.market[0]")],
+        )
+
     def test_malformed_engine_executable_buy_prevents_false_sell_empty(self):
         issues = inspect_action(
             observation(),
@@ -144,6 +159,27 @@ class ActionGuardTest(unittest.TestCase):
                 "market": [
                     ["BUY_PRODUCT", "WHEAT", "1"],
                     ["SELL", "WHEAT", 1],
+                ],
+            },
+        )
+
+        self.assertEqual(
+            [(issue.code, issue.path) for issue in issues],
+            [("market.order_malformed", "$.market[0]")],
+        )
+
+    def test_malformed_large_order_projection_obeys_engine_loop_guard(self):
+        obs = observation()
+        obs["private"]["shed"] = {"CARROT": 100_000}
+
+        issues = inspect_action(
+            obs,
+            {
+                "farmer": ["PASS"],
+                "hands": [],
+                "market": [
+                    ["SELL", "CARROT", 100_000],
+                    ["SELL", "CARROT", 1],
                 ],
             },
         )
@@ -195,6 +231,24 @@ class ActionGuardTest(unittest.TestCase):
                 ("terminal.unit_action", "$.farmer"),
                 ("terminal.purchase", "$.market[0]"),
             },
+        )
+
+    def test_terminal_purchase_issue_takes_priority_over_affordability(self):
+        obs = observation(step=718)
+        obs["farms"][0]["money"] = 0
+
+        issues = inspect_action(
+            obs,
+            {
+                "farmer": ["PASS"],
+                "hands": [],
+                "market": [["BUY_SEED", "CARROT", 1]],
+            },
+        )
+
+        self.assertEqual(
+            [(issue.code, issue.path) for issue in issues],
+            [("terminal.purchase", "$.market[0]")],
         )
 
     def test_guard_removes_actions_that_cannot_create_terminal_cash(self):
@@ -490,6 +544,285 @@ class ActionGuardTest(unittest.TestCase):
         self.assertEqual(
             [(issue.code, issue.path) for issue in issues],
             [("market.sell_empty", "$.market[3]")],
+        )
+
+    def test_reports_and_guards_a_definitely_unaffordable_seed_buy(self):
+        obs = observation()
+        obs["farms"][0]["money"] = 19
+        obs["private"]["shed"] = {"MELON": 1}
+        action = {
+            "farmer": ["PASS"],
+            "hands": [],
+            "market": [
+                ["BUY_SEED", "CARROT", 1],
+                ["SELL", "MELON", 1],
+            ],
+        }
+
+        issues = inspect_action(obs, action)
+        guarded = guard_action(obs, action)
+
+        self.assertEqual(
+            [(issue.code, issue.path) for issue in issues],
+            [("market.insufficient_money", "$.market[0]")],
+        )
+        self.assertEqual(
+            guarded["market"],
+            [[], ["SELL", "MELON", 1]],
+        )
+
+    def test_fixed_seed_buys_consume_money_in_market_slot_order(self):
+        obs = observation()
+        obs["farms"][0]["money"] = 30
+        obs["private"]["shed"] = {"MELON": 1}
+        action = {
+            "farmer": ["PASS"],
+            "hands": [],
+            "market": [
+                ["BUY_SEED", "CARROT", 1],
+                ["BUY_SEED", "CARROT", 1],
+                ["SELL", "MELON", 1],
+            ],
+        }
+
+        issues = inspect_action(obs, action)
+        guarded = guard_action(obs, action)
+
+        self.assertEqual(
+            [(issue.code, issue.path) for issue in issues],
+            [("market.insufficient_money", "$.market[1]")],
+        )
+        self.assertEqual(
+            guarded["market"],
+            [
+                ["BUY_SEED", "CARROT", 1],
+                [],
+                ["SELL", "MELON", 1],
+            ],
+        )
+
+    def test_partial_fixed_purchase_leaves_exact_money_for_later_slots(self):
+        obs = observation()
+        obs["farms"][0]["money"] = 30
+        action = {
+            "farmer": ["PASS"],
+            "hands": [],
+            "market": [
+                ["BUY_SEED", "CARROT", 2],
+                ["BUY_SEED", "WHEAT", 1],
+            ],
+        }
+
+        self.assertEqual(inspect_action(obs, action), ())
+        self.assertEqual(guard_action(obs, action), action)
+
+    def test_fixed_purchase_succeeds_when_money_equals_unit_cost(self):
+        obs = observation()
+        obs["farms"][0]["money"] = 20
+        action = {
+            "farmer": ["PASS"],
+            "hands": [],
+            "market": [["BUY_SEED", "CARROT", 1]],
+        }
+
+        self.assertEqual(inspect_action(obs, action), ())
+        self.assertEqual(guard_action(obs, action), action)
+
+    def test_animal_purchase_requires_only_its_fixed_cost(self):
+        obs = observation()
+        obs["farms"][0]["money"] = 300
+        obs["private"]["shed"] = {"WHEAT": 100}
+        action = {
+            "farmer": ["PASS"],
+            "hands": [],
+            "market": [["BUY_ANIMAL", "GOOSE", 1]],
+        }
+
+        self.assertEqual(inspect_action(obs, action), ())
+        self.assertEqual(guard_action(obs, action), action)
+
+        obs["farms"][0]["money"] = 299
+        issues = inspect_action(obs, action)
+        self.assertEqual(
+            [(issue.code, issue.path) for issue in issues],
+            [("market.insufficient_money", "$.market[0]")],
+        )
+        self.assertEqual(guard_action(obs, action)["market"], [])
+
+    def test_hire_uses_fibonacci_cost_after_prior_successes(self):
+        obs = observation()
+        obs["farms"][0]["money"] = 4
+        obs["private"]["shed"] = {"MELON": 1}
+        action = {
+            "farmer": ["PASS"],
+            "hands": [],
+            "market": [
+                ["HIRE"],
+                ["HIRE"],
+                ["HIRE"],
+                ["HIRE"],
+                ["SELL", "MELON", 1],
+            ],
+        }
+
+        issues = inspect_action(obs, action)
+        guarded = guard_action(obs, action)
+
+        self.assertEqual(
+            [(issue.code, issue.path) for issue in issues],
+            [("market.insufficient_money", "$.market[3]")],
+        )
+        self.assertEqual(
+            guarded["market"],
+            [
+                ["HIRE"],
+                ["HIRE"],
+                ["HIRE"],
+                [],
+                ["SELL", "MELON", 1],
+            ],
+        )
+
+    def test_hire_cost_starts_from_the_observed_daily_counter(self):
+        obs = observation()
+        obs["farms"][0]["money"] = 4
+        obs["farms"][0]["hires_today"] = 4
+        action = {
+            "farmer": ["PASS"],
+            "hands": [],
+            "market": [["HIRE"]],
+        }
+
+        issues = inspect_action(obs, action)
+
+        self.assertEqual(
+            [(issue.code, issue.path) for issue in issues],
+            [("market.insufficient_money", "$.market[0]")],
+        )
+        self.assertEqual(guard_action(obs, action)["market"], [])
+
+    def test_buy_land_is_a_no_op_after_all_quadrants_are_unlocked(self):
+        obs = observation()
+        obs["farms"][0]["unlocked_quadrants"] = ["NW", "NE", "SW", "SE"]
+        obs["private"]["shed"] = {"MELON": 1}
+        action = {
+            "farmer": ["PASS"],
+            "hands": [],
+            "market": [
+                ["BUY_LAND"],
+                ["SELL", "MELON", 1],
+            ],
+        }
+
+        issues = inspect_action(obs, action)
+        guarded = guard_action(obs, action)
+
+        self.assertEqual(
+            [(issue.code, issue.path) for issue in issues],
+            [("market.land_unavailable", "$.market[0]")],
+        )
+        self.assertEqual(
+            guarded["market"],
+            [[], ["SELL", "MELON", 1]],
+        )
+
+    def test_buy_land_costs_advance_in_quadrant_order(self):
+        obs = observation()
+        obs["farms"][0]["money"] = 3000
+        obs["private"]["shed"] = {"MELON": 1}
+        action = {
+            "farmer": ["PASS"],
+            "hands": [],
+            "market": [
+                ["BUY_LAND"],
+                ["BUY_LAND"],
+                ["BUY_LAND"],
+                ["SELL", "MELON", 1],
+            ],
+        }
+
+        issues = inspect_action(obs, action)
+        guarded = guard_action(obs, action)
+
+        self.assertEqual(
+            [(issue.code, issue.path) for issue in issues],
+            [("market.insufficient_money", "$.market[2]")],
+        )
+        self.assertEqual(
+            guarded["market"],
+            [
+                ["BUY_LAND"],
+                ["BUY_LAND"],
+                [],
+                ["SELL", "MELON", 1],
+            ],
+        )
+
+    def test_possible_sell_revenue_keeps_a_later_fixed_buy(self):
+        obs = observation()
+        obs["farms"][0]["money"] = 0
+        obs["private"]["shed"] = {"CARROT": 1}
+        action = {
+            "farmer": ["PASS"],
+            "hands": [],
+            "market": [
+                ["SELL", "CARROT", 1],
+                ["BUY_SEED", "CARROT", 1],
+            ],
+        }
+
+        self.assertEqual(inspect_action(obs, action), ())
+        self.assertEqual(guard_action(obs, action), action)
+
+    def test_dynamic_product_buy_preserves_the_money_upper_bound(self):
+        obs = observation()
+        obs["farms"][0]["money"] = 19
+        action = {
+            "farmer": ["PASS"],
+            "hands": [],
+            "market": [
+                ["BUY_PRODUCT", "WHEAT", 1],
+                ["BUY_SEED", "CARROT", 1],
+            ],
+        }
+
+        issues = inspect_action(obs, action)
+        guarded = guard_action(obs, action)
+
+        self.assertEqual(
+            [(issue.code, issue.path) for issue in issues],
+            [("market.insufficient_money", "$.market[1]")],
+        )
+        self.assertEqual(
+            guarded["market"],
+            [["BUY_PRODUCT", "WHEAT", 1]],
+        )
+
+    def test_malformed_fixed_buy_still_affects_inspection_money_projection(self):
+        obs = observation()
+        obs["farms"][0]["money"] = 30
+        action = {
+            "farmer": ["PASS"],
+            "hands": [],
+            "market": [
+                ["BUY_SEED", "CARROT", "1"],
+                ["BUY_SEED", "CARROT", 1],
+            ],
+        }
+
+        issues = inspect_action(obs, action)
+        guarded = guard_action(obs, action)
+
+        self.assertEqual(
+            [(issue.code, issue.path) for issue in issues],
+            [
+                ("market.order_malformed", "$.market[0]"),
+                ("market.insufficient_money", "$.market[1]"),
+            ],
+        )
+        self.assertEqual(
+            guarded["market"],
+            [[], ["BUY_SEED", "CARROT", 1]],
         )
 
     def test_fails_all_overcommitted_plant_requests_closed(self):

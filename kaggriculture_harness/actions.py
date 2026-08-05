@@ -26,6 +26,15 @@ class _UnitProjection:
     private: object
 
 
+@dataclass
+class _MarketState:
+    availability_ranges: dict[str, tuple[int, int]]
+    money_minimum: float
+    money_maximum: float | None
+    hires_today: int | None
+    unlocked_extra: int | None
+
+
 _CROPS = {"WHEAT", "CARROT", "TOMATO", "STRAWBERRY", "MELON"}
 _PRODUCTS = _CROPS | {"MILK", "WOOL", "EGG", "FERTILIZER"}
 _ANIMALS = {"GOOSE", "COW", "SHEEP"}
@@ -71,6 +80,22 @@ _TERMINAL_PURCHASE_OPS = {
 }
 _TURNS_PER_DAY = 24
 _SHED_CAPACITY = 100
+_MARKET_LOOP_LIMIT = 100_000
+_FIXED_PURCHASE_COSTS = {
+    "BUY_SEED": {
+        "WHEAT": 10,
+        "CARROT": 20,
+        "TOMATO": 50,
+        "STRAWBERRY": 100,
+        "MELON": 80,
+    },
+    "BUY_ANIMAL": {
+        "GOOSE": 300,
+        "COW": 400,
+        "SHEEP": 500,
+    },
+}
+_LAND_PRICES = (1000, 2000, 4000)
 
 
 def _is_positive_integer(value):
@@ -78,7 +103,7 @@ def _is_positive_integer(value):
 
 
 def _is_safe_market_quantity(value):
-    return _is_positive_integer(value) and value < 100_000
+    return _is_positive_integer(value) and value < _MARKET_LOOP_LIMIT
 
 
 def _normalize_unit_action(action):
@@ -136,6 +161,8 @@ def _engine_executable_market_order(order):
     if not isinstance(order, list) or not order:
         return None
     operation = order[0]
+    if not isinstance(operation, str):
+        return None
     if operation in {"HIRE", "BUY_LAND"}:
         return [operation]
     if operation not in {"BUY_SEED", "BUY_PRODUCT", "BUY_ANIMAL", "SELL"}:
@@ -148,6 +175,7 @@ def _engine_executable_market_order(order):
         return None
     if quantity <= 0:
         return None
+    quantity = min(quantity, _MARKET_LOOP_LIMIT - 1)
     item = order[1]
     if operation == "BUY_SEED" and item in _CROPS:
         return [operation, item, quantity]
@@ -324,11 +352,140 @@ def _dry_run_unit_actions(obs, unit_actions, *, fail_closed_lossy=False):
     )
 
 
-def _inspect_market_sells(shed, market):
-    availability_ranges = {
-        item: (max(0, quantity), max(0, quantity))
-        for item, quantity in shed.items()
-    }
+def _new_market_state(farm, shed):
+    money = max(0, farm["money"])
+    return _MarketState(
+        availability_ranges={
+            item: (max(0, quantity), max(0, quantity))
+            for item, quantity in shed.items()
+        },
+        money_minimum=money,
+        money_maximum=money,
+        hires_today=max(0, farm["hires_today"]),
+        unlocked_extra=max(0, len(farm["unlocked_quadrants"]) - 1),
+    )
+
+
+def _project_sell(state, item, quantity):
+    minimum, maximum = state.availability_ranges.get(item, (0, 0))
+    sold_minimum = min(quantity, minimum)
+    sold_maximum = min(quantity, maximum)
+    state.availability_ranges[item] = (
+        minimum - sold_minimum,
+        maximum - sold_maximum,
+    )
+    if sold_maximum > 0:
+        state.money_minimum += sold_minimum
+        state.money_maximum = None
+    return sold_maximum > 0
+
+
+def _project_dynamic_product_buy(state, item, quantity):
+    maximum_units = quantity
+    if state.money_maximum is not None:
+        maximum_units = min(quantity, int(state.money_maximum))
+    minimum, maximum = state.availability_ranges.get(item, (0, 0))
+    state.availability_ranges[item] = (
+        minimum,
+        maximum + maximum_units,
+    )
+    if maximum_units > 0:
+        state.money_minimum = 0
+
+
+def _project_fixed_purchase(state, operation, item, quantity):
+    cost = _FIXED_PURCHASE_COSTS[operation][item]
+    minimum_units = min(quantity, int(state.money_minimum // cost))
+    maximum_units = quantity
+    if state.money_maximum is not None:
+        maximum_units = min(
+            quantity,
+            int(state.money_maximum // cost),
+        )
+    if maximum_units == 0:
+        return False
+    state.money_minimum = max(
+        0,
+        state.money_minimum - cost * maximum_units,
+    )
+    if state.money_maximum is not None:
+        state.money_maximum -= cost * minimum_units
+    return True
+
+
+def _hire_cost(hires_today):
+    current, following = 1, 1
+    for _ in range(hires_today):
+        current, following = following, current + following
+    return current
+
+
+def _project_hire(state):
+    if state.hires_today is None:
+        if state.money_maximum is not None and state.money_maximum < 1:
+            return False
+        state.money_minimum = 0
+        return True
+
+    cost = _hire_cost(state.hires_today)
+    if state.money_maximum is not None and state.money_maximum < cost:
+        return False
+    if state.money_minimum >= cost:
+        state.money_minimum -= cost
+        if state.money_maximum is not None:
+            state.money_maximum -= cost
+        state.hires_today += 1
+        return True
+
+    state.money_minimum = 0
+    state.hires_today = None
+    return True
+
+
+def _project_buy_land(state):
+    if state.unlocked_extra is None:
+        state.money_minimum = 0
+        return None
+    if state.unlocked_extra >= len(_LAND_PRICES):
+        return "market.land_unavailable"
+
+    cost = _LAND_PRICES[state.unlocked_extra]
+    if state.money_maximum is not None and state.money_maximum < cost:
+        return "market.insufficient_money"
+    if state.money_minimum >= cost:
+        state.money_minimum -= cost
+        if state.money_maximum is not None:
+            state.money_maximum -= cost
+        state.unlocked_extra += 1
+        return None
+
+    state.money_minimum = 0
+    state.unlocked_extra = None
+    return None
+
+
+def _insufficient_money_issue(index, operation):
+    return Issue(
+        severity="NO_OP",
+        code="market.insufficient_money",
+        path=f"$.market[{index}]",
+        message=(
+            f"{operation} cannot afford one unit from any projected money state."
+        ),
+    )
+
+
+def _land_unavailable_issue(index):
+    return Issue(
+        severity="NO_OP",
+        code="market.land_unavailable",
+        path=f"$.market[{index}]",
+        message="BUY_LAND has no remaining quadrant to unlock.",
+    )
+
+
+def _inspect_market_orders(obs, farm, shed, market):
+    state = _new_market_state(farm, shed)
     issues = []
     for index, order in enumerate(market[:10]):
         normalized_order = _normalize_market_order(order)
@@ -341,16 +498,42 @@ def _inspect_market_sells(shed, market):
         if projected_order is None:
             continue
         operation = projected_order[0]
+        reports_semantics = is_contract_valid and not (
+            obs["step"] >= 718
+            and operation in _TERMINAL_PURCHASE_OPS
+        )
         if operation == "BUY_PRODUCT":
             _, item, quantity = projected_order
-            minimum, maximum = availability_ranges.get(item, (0, 0))
-            availability_ranges[item] = (minimum, maximum + quantity)
+            _project_dynamic_product_buy(state, item, quantity)
+            continue
+        if operation in _FIXED_PURCHASE_COSTS:
+            _, item, quantity = projected_order
+            if (
+                not _project_fixed_purchase(
+                    state,
+                    operation,
+                    item,
+                    quantity,
+                )
+                and reports_semantics
+            ):
+                issues.append(_insufficient_money_issue(index, operation))
+            continue
+        if operation == "HIRE":
+            if not _project_hire(state) and reports_semantics:
+                issues.append(_insufficient_money_issue(index, operation))
+            continue
+        if operation == "BUY_LAND":
+            land_issue = _project_buy_land(state)
+            if land_issue == "market.insufficient_money" and reports_semantics:
+                issues.append(_insufficient_money_issue(index, operation))
+            elif land_issue == "market.land_unavailable" and reports_semantics:
+                issues.append(_land_unavailable_issue(index))
             continue
         if operation != "SELL":
             continue
         _, item, quantity = projected_order
-        minimum, maximum = availability_ranges.get(item, (0, 0))
-        if maximum == 0 and is_contract_valid:
+        if not _project_sell(state, item, quantity) and reports_semantics:
             issues.append(
                 Issue(
                     severity="NO_OP",
@@ -359,18 +542,11 @@ def _inspect_market_sells(shed, market):
                     message="SELL has no available post-order shed inventory.",
                 )
             )
-        availability_ranges[item] = (
-            max(0, minimum - quantity),
-            max(0, maximum - quantity),
-        )
     return issues
 
 
-def _guard_market_orders(obs, shed, market):
-    availability_ranges = {
-        item: (max(0, quantity), max(0, quantity))
-        for item, quantity in shed.items()
-    }
+def _guard_market_orders(obs, farm, shed, market):
+    state = _new_market_state(farm, shed)
     guarded = []
     for order in market[:10]:
         normalized_order = _normalize_market_order(order)
@@ -386,18 +562,28 @@ def _guard_market_orders(obs, shed, market):
             continue
         if operation == "SELL":
             _, item, quantity = normalized_order
-            minimum, maximum = availability_ranges.get(item, (0, 0))
-            if maximum == 0:
+            if not _project_sell(state, item, quantity):
                 guarded.append([])
                 continue
-            availability_ranges[item] = (
-                max(0, minimum - quantity),
-                max(0, maximum - quantity),
-            )
         elif operation == "BUY_PRODUCT":
             _, item, quantity = normalized_order
-            minimum, maximum = availability_ranges.get(item, (0, 0))
-            availability_ranges[item] = (minimum, maximum + quantity)
+            _project_dynamic_product_buy(state, item, quantity)
+        elif operation in _FIXED_PURCHASE_COSTS:
+            _, item, quantity = normalized_order
+            if not _project_fixed_purchase(
+                state,
+                operation,
+                item,
+                quantity,
+            ):
+                guarded.append([])
+                continue
+        elif operation == "HIRE" and not _project_hire(state):
+            guarded.append([])
+            continue
+        elif operation == "BUY_LAND" and _project_buy_land(state) is not None:
+            guarded.append([])
+            continue
         guarded.append(normalized_order)
     while guarded and guarded[-1] == []:
         guarded.pop()
@@ -639,7 +825,12 @@ def inspect_action(obs, action):
             )
     if isinstance(market, list):
         issues.extend(
-            _inspect_market_sells(unit_projection.private["shed"], market)
+            _inspect_market_orders(
+                obs,
+                unit_projection.farm,
+                unit_projection.private["shed"],
+                market,
+            )
         )
     return tuple(issues)
 
@@ -705,6 +896,7 @@ def guard_action(obs, action):
         market = []
     normalized_market = _guard_market_orders(
         obs,
+        unit_projection.farm,
         unit_projection.private["shed"],
         market,
     )

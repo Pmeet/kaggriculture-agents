@@ -196,13 +196,12 @@ Completed in the first slice:
 - JSON/CSV reports with action latency, issue counts, package version, and engine/candidate hashes;
 - fail-closed structural action guard covering hand counts, operation shape, market limits, and atomic seed overcommitment;
 - farmer-then-hands scratch-state validation for sequential unit no-ops, shed overflow, and redundant fertilizer;
-- post-unit market projection for guaranteed empty `SELL` orders, conservative conditional-product ranges, and first-ten slot fidelity;
+- post-unit market projection for guaranteed empty `SELL` orders, conservative dynamic-order ranges, fixed-cost affordability, sequential hire/land state, and first-ten slot fidelity;
 - capacity-safe step-718 drop/place-and-sell behavior in the baseline.
 
 Remaining:
 
 - Build observation fixtures from real replays.
-- Extend market projection through fixed-price affordability while keeping opponent-dependent money conservative.
 - Tighten terminal `PLACE` classification and non-destructive partial-request reporting.
 - Add environment regression tests for watering, crop production, workers, market execution, overflow, and step-718 liquidation.
 - Run and archive the 1,000-game reliability soak.
@@ -275,10 +274,9 @@ Staff references: [episode-view quota](https://www.kaggle.com/competitions/kaggr
 
 The next implementation slice remains correctness work, not a sophisticated policy:
 
-1. Project fixed-price `BUY_SEED`, `BUY_ANIMAL`, `HIRE`, and `BUY_LAND` affordability in raw market-slot order.
-2. Tighten terminal `PLACE` classification and report partial requests without calling them destructive.
-3. Add replay-derived observation fixtures and the broader engine regression matrix.
-4. Run the 1,000-game reliability soak and archive its reproducibility metadata.
-5. Then implement a multi-tile worker scheduler and beat `starter` reliably before requesting a Kaggle slot.
+1. Tighten terminal `PLACE` classification and report partial requests without calling them destructive.
+2. Add replay-derived observation fixtures and the broader engine regression matrix.
+3. Run the 1,000-game reliability soak and archive its reproducibility metadata.
+4. Then implement a multi-tile worker scheduler and beat `starter` reliably before requesting a Kaggle slot.
 
 This ordering makes every later strategy experiment measurable and keeps server submissions for decisions that local evidence supports.

@@ -1,4 +1,9 @@
-"""Kaggriculture submission agent: livestock-led economy with economic routing.
+"""Frozen benchmark snapshot. Do not edit: it is the opponent we measure against.
+
+Snapshot of the promoted agent at the point livestock first paid off.
+Original docstring follows.
+
+Kaggriculture submission agent: livestock-led economy with economic routing.
 
 What earlier versions taught us, measured on real episodes:
 

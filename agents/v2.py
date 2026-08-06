@@ -1,4 +1,4 @@
-"""Kaggriculture submission agent: livestock-led economy with economic routing.
+"""Kaggriculture v2: livestock-led economy with economic action routing.
 
 What earlier versions taught us, measured on real episodes:
 

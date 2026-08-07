@@ -11,3 +11,5 @@ logs/
 replays/
 reports/
 submission*.tar.gz
+lab/*.log
+replays/

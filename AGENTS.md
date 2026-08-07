@@ -1,167 +1,148 @@
 # Kaggriculture Agent Handoff
 
-Last updated: 2026-08-05 (Asia/Calcutta)
+Last updated: 2026-08-07 (Asia/Calcutta)
 
-This file is the durable handoff for any AI agent continuing work in this repository. Read it together with `README.md` and `ROADMAP.md` before editing.
+Durable handoff for any agent continuing this work. Read with `README.md` and
+`ROADMAP.md`.
 
 ## Non-negotiable constraints
 
-- **Do not upload or submit anything to Kaggle until the user explicitly says to do so.** Local simulations and read-only Kaggle API calls are allowed. Packaging or creating a submission archive should also wait for an explicit request.
-- Never print, copy into source control, or expose the Kaggle access token. Follow the scoped read-only instructions in `README.md`; the token value is intentionally not recorded here.
-- Competition downloads and official files are restricted material. Keep `competition-data/` ignored and do not redistribute it.
-- Keep `.kaggle/`, `.venv/`, `competition-data/`, `logs/`, `replays/`, `reports/`, and `submission*.tar.gz` out of Git.
-- `main.py` must remain a self-contained Kaggle entrypoint, and `agent` must remain the last module-level callable because the Kaggle loader selects the last callable it finds.
-- The runtime is offline and CPU-only. Do not add network dependencies to the submitted agent.
-- Use test-driven development for every behavior change: add one failing regression, confirm the expected failure, implement the minimum fix, then run the full suite and Ruff.
+- **Do not upload or submit to Kaggle without the user's explicit approval for
+  that submission.** Read-only Kaggle API calls and local simulation are fine.
+  Two submissions have been made, each individually approved.
+- Never print, commit, or expose the Kaggle access token. It lives at
+  `~/.kaggle/access_token` (mode 600) in WSL and is scoped per command via
+  `KAGGLE_API_TOKEN="$(cat ~/.kaggle/access_token)"`.
+- Competition downloads are restricted material. Keep `competition-data/`,
+  `replays/`, `logs/`, `reports/`, `.venv/` and `submission*.tar.gz` out of Git.
+- `main.py` must stay a self-contained, standard-library-only Kaggle entrypoint,
+  and `agent` must remain the **last** module-level callable: the loader takes
+  `[v for v in namespace.values() if callable(v)][-1]`. Anything callable defined
+  after it — including a class — silently becomes the submitted agent.
+- The runtime is offline and CPU-only.
 
-## Repository snapshot
+## Where things stand
 
-- Workspace: `D:\VS Code\Projects\kaggriculture`
-- Current branch: `feature/1-correctness-harness`
-- Key implementation checkpoints:
-  - `0a6499c Build local Kaggriculture evaluation harness`
-  - `e984fc9 Prevent sequential action and terminal inventory loss`
-  - `c659c54 Document agent handoff and next steps`
-  - `b7fdcc2 Preserve sequential market action semantics`
-  - `b7b5adc Project fixed market affordability conservatively`
-- No Git remote is configured (`git remote -v` is empty).
-- The user authorized pushing repository changes, but did not authorize creating a GitHub repository. Ask for the remote URL or explicit permission to create a private repository before adding one.
-- No Kaggle submission or upload has been made.
+`main.py` is a livestock-led economy. Against the built-in `starter` it banks
+about $100k to `starter`'s $3.5k; the pre-existing carrot-loop baseline tied
+`starter` at $3,498.
 
-## Environment and verified baseline
+| Opponent | Record (80 paired games) | Bank |
+| --- | --- | --- |
+| `starter` | 80-0 | $99,566 vs $3,495 |
+| `random` | 80-0 | $99,706 vs $12 |
+| `agents/v1.py` (crop-only) | 80-0 | $81,386 vs $48,661 |
+| `agents/baseline_a.py` (first submission) | 71-9 | $76,967 vs $51,454 |
 
-- Windows PowerShell workspace with `.venv`.
-- Python: 3.12.13.
-- `kaggle-environments`: 1.32.3.
-- Kaggle CLI: 2.2.4.
-- Last full verification: **80 tests passed**, Ruff passed, and `pip check` reported no broken requirements.
-- Last paired smoke test: six games (`main.py` versus built-in `starter`, seeds 1–3 from both seats), all six reached `DONE`, all tied, and the validator reported zero issues.
-- The first `kaggle-environments` import prints large unrelated OpenSpiel registration warnings. They are harmless here; use process exit codes and final game statuses.
+Two submissions are live. Ratings converge over hours, so read them late.
 
-Verification commands:
+## What the engine actually does
 
-```powershell
-.\.venv\Scripts\python.exe -m unittest discover -s tests -v
-.\.venv\Scripts\ruff.exe check .
-.\.venv\Scripts\python.exe -m pip check
-.\.venv\Scripts\python.exe -m kaggriculture_harness.cli --candidate main.py --opponent starter --seeds 1 2 3 --output reports\handoff-check
-git diff --check
-git status --short --branch
+The prose docs disagree with the engine in several places. The engine at
+`.venv/Lib/site-packages/kaggle_environments/envs/kaggriculture/kaggriculture.py`
+is the source of truth, and `tests/test_agent.py` pins our copies of its
+constants and price curve against it.
+
+- Animals produce their base unit **even when unfed**. Feeding matters for
+  survival (two consecutive missed feeds and the animal is gone) and to bank the
+  `CARE` bonus, which is **+1 per day**, not +2.
+- `FERTILIZER` **can be sold**, and no town building consumes it, so it is a
+  pure glut pot of roughly $25k shared between both players. Every living animal
+  yields one per day for one action.
+- Tile operations bail out early on `LOCKED` tiles. Hands spawn on all four
+  shed-access tiles regardless of which quadrants you own, so `PICKUP` and
+  `DROP` on a locked one are silent no-ops.
+- The unit phase runs before the market phase, so anything a hand picks up this
+  turn has already left the shed when the sell orders execute.
+- Over-committing `PLANT` for a crop makes the engine drop **every** `PLANT` for
+  that crop that turn.
+- Market purchases can push the shed past its nominal 100 cap; end-of-day drops
+  cannot, and the overflow is discarded.
+
+## The economics that drive the design
+
+Derived from the engine by `lab/economics.py`, not from the docs.
+
+- **Labour is nearly free.** Hire cost is `fib(n)` and resets daily: ten hands
+  cost $143 for ~230 extra actions. Actions and market liquidity bind, not land.
+- **The town drains ~3,300 units a season** and typically nobody supplies it, so
+  premium goods trade far above base — strawberry near $300 against a $120 base,
+  milk $320, wool $250. Production is usually the constraint, not liquidity.
+- **Glut curves differ enormously.** Wheat and egg are logarithmic and absorb
+  effectively unlimited volume (~$19 / ~$38). Strawberry, milk and wool collapse
+  to the $1 floor after 40-60 units above equilibrium. Melon is `sq`-shaped: very
+  valuable in small quantity, worthless in bulk.
+- **Livestock dominates per tile and per action.** Feed, care, harvest and
+  fertilizer collection all happen on one tile, so a move amortises over four
+  jobs, and animals need no watering. A cared-for cow returns roughly $415 a day
+  against its $400 price.
+- **Melon is load-bearing.** Removing it collapses the gauntlet score from 0.898
+  to 0.062. Do not "simplify" it away.
+
+## Agent architecture (`main.py`)
+
+Every job is valued **in dollars** and assigned by `value - distance *
+action_cost`, where `action_cost` is the marginal job dropped for lack of
+capacity. Pricing a walk at its real opportunity cost keeps units working the
+tile in front of them and makes assignments stable across turns.
+
+- `census` — one board pass everything else reads.
+- `build_jobs` — livestock, weeds, crops, and filling empty tiles.
+- `assign_units` — greedy matching, with reservations for seeds and shed stock.
+- `plan_market` — one budget spent in payback order: feed, livestock, seed, land.
+- `plan_sales` — sells down to each product's own collapse point, capped by
+  price impact, relaxing to a full liquidation as the season closes.
+
+## Research loop (`lab/`, never submitted)
+
+- `arena.py` — paired matches from both seats. `fast_play` skips the framework's
+  per-step deep copy (over half a game's runtime) and is pinned to `env.run` by
+  `tests/test_integration.py`.
+- `pool.py` — the opponent gauntlet, including archetypes reconstructed from
+  real ladder replays.
+- `optimize.py` — coordinate descent on paired bank margin, or on the pool.
+- `economics.py`, `inspect_game.py`, `probe.py`, `replay.py` — analysis.
+
+**Measurement discipline that has repeatedly mattered:**
+
+1. Win rate over a few dozen games has a ±0.19 interval. Steer on paired bank
+   margin, and confirm with head-to-head.
+2. Always validate on held-out seeds. Opponent-supply weighting looked like
+   +0.16 on search seeds and +0.05 on held-out.
+3. Tuning against one frozen mirror converges on beating ourselves. Use the pool.
+4. A parameter tuned around a bug encodes the bug. When livestock accounting was
+   fixed, every herd-size setting had to be retuned.
+
+## Open leads
+
+- **Herd size.** Across six ladder games we lost every game where the opponent
+  accumulated more animal-days (452, 338, 330) and won every game where they
+  accumulated fewer (0, 0, 112). Locally, forcing a larger herd loses, because
+  milk and wool crash and our own extra supply cannibalises our existing sales.
+  Unresolved: whether animal-days are the cause or a symptom of a stronger early
+  economy. This is the most valuable open question.
+- Placing every owned animal is **not** automatically right — stranded stock was
+  accidentally protecting us from crashing wool. Fix the buying decision rather
+  than forcing placement.
+- Melon still sells into its own crash; sale pacing across days is unexplored.
+- Weeds are largely ignored, as they are by strong ladder opponents.
+
+## Verification before any submission
+
+```bash
+~/.venvs/kaggri/bin/python -m unittest discover -s tests
+~/.venvs/kaggri/bin/python -m ruff check .
+~/.venvs/kaggri/bin/python lab/pool.py 24          # gauntlet
 ```
 
-The smoke report is local and ignored. Confirm `all_done_games == 6` and `total_issue_count == 0` in its `report.json`.
+Then confirm: zero validator issues (`kaggriculture_harness.actions.inspect_action`
+over full games), every game `DONE`, p95 turn latency far below the 1s limit
+(currently ~0.6ms), and no unsold shed at the final step. Get explicit approval.
 
-## What is implemented
+## Environment
 
-### Competition research and roadmap
-
-- `ROADMAP.md` contains the dated competition brief, official rules, mechanics, risks, submission contract, evaluation protocol, and phased strategy.
-- `README.md` contains setup, authenticated read-only access, local evaluation, official material locations, and the manual submission gate.
-- Official downloaded material is under ignored `competition-data/official/`.
-
-### Baseline agent
-
-- `main.py` is a deterministic carrot-loop baseline used to prove loader and engine correctness.
-- It buys, plants, waters, harvests, and sells carrots.
-- On actionable step 718 it performs capacity-safe liquidation.
-- When shed capacity is contested, a bounded multiple-choice optimizer selects feasible `DROP`/`PLACE` actions across farmer and hands using observed prices, without overflowing the 100-item shed.
-- Tests cover full shed, partial placement, unsellable inventory, higher-value allocation, quantity-aware allocation, and cross-unit capacity optimization.
-
-### Evaluation harness
-
-- `kaggriculture_harness/tournament.py` runs every seed twice with swapped seats.
-- Results are candidate-relative and include wins/losses/ties, bank margin, seat delta, Wilson interval, action latency, completion status, and validator issue counts.
-- JSON/CSV reports include Python/package versions and SHA-256 hashes for the candidate, installed engine, and file opponent when applicable.
-- Candidate and file-opponent source are snapshotted before a run. Report writing rejects candidate or engine changes after the run.
-- `kaggriculture_harness/cli.py` is the command-line entrypoint.
-
-### Action validation
-
-- `kaggriculture_harness/actions.py` validates action structure, types, arity, products, exact hand count, movement bounds, ten market slots, terminal purchases, and atomic seed overcommitment.
-- Unit actions are dry-run on deep copies in exact farmer-then-hands order using the pinned engine's `_apply_unit_action`.
-- The live observation is never mutated.
-- Sequential no-ops are detected, including shared-tile and shared-shed conflicts.
-- Destructive `DROP` overflow and redundant fertilizer are reported as `LOSSY`.
-- `guard_action` fails closed and reprojects later units after suppressing a no-op or lossy action.
-- Market inspection starts from the engine-executed post-unit shed, then tracks guaranteed `SELL` exhaustion in raw slot order. Conditional dynamic product buys widen an availability interval instead of creating false certainty.
-- Fixed-price seed and animal purchases consume projected money per unit, including exact partial fulfillment. Sequential `HIRE` uses the observed Fibonacci counter, and `BUY_LAND` follows the engine's 1000/2000/4000 progression.
-- Money begins exact and becomes a conservative range after dynamic `SELL`/`BUY_PRODUCT` outcomes. A fixed order is rejected only when its maximum possible balance cannot afford one unit.
-- The guard uses its separate fail-closed post-unit state and replaces rejected interior market slots with engine-inert `[]` placeholders, preserving alignment with the opponent. Trailing inert slots are trimmed.
-- Strict public validation remains separate from engine-faithful inspection projection: off-contract orders are reported malformed even when the permissive engine parser could execute them, and their possible downstream effects are still modeled conservatively.
-- The tournament currently **observes** issues but does not replace the candidate's returned action with `guard_action`.
-
-## Current limitations and known gaps
-
-Phase 1 remains in progress. Guaranteed unit/market no-op projection, fixed-cost affordability, and market-slot fidelity are implemented.
-
-1. Dynamic `SELL` and `BUY_PRODUCT` prices remain intentionally bounded rather than reproduced exactly because the opponent's simultaneous orders are unknown.
-2. Partial `PICKUP`, `PLACE`, fixed-price purchases, and `SELL` requests leave the unfulfilled remainder in place; they are not destructive losses. Add a distinct `PARTIAL` severity rather than mislabeling them `LOSSY`.
-3. Terminal `PLACE` classification is still broad. At step 718 it should be considered useful only when the resolved branch deposits a sellable item into the shed.
-4. HIRE projection assumes the competition default `farmHandCostMult == 1`; custom configuration cannot be inferred from the observation-only public APIs.
-5. Real replay-derived observation fixtures, the broader engine regression matrix, and the 1,000-game reliability soak remain undone.
-
-## Exact next TDD slice
-
-Add non-destructive partial telemetry and exact terminal `PLACE` classification while keeping the action and guard shapes unchanged:
-
-```python
-inspect_action(obs, action) -> tuple[Issue, ...]
-guard_action(obs, action) -> dict
-```
-
-Recommended red tests, one at a time:
-
-1. `PICKUP n` with fewer than `n` available units reports `PARTIAL`, stays in guarded output, and transfers the available amount.
-2. `PLACE n` limited by inventory or remaining shed capacity reports `PARTIAL`; a destructive `DROP` overflow remains `LOSSY`.
-3. `SELL n` with positive but insufficient maximum availability reports `PARTIAL`, stays in place, and leaves later slots projected from the fulfilled amount.
-4. A partially affordable fixed-price multi-unit purchase reports `PARTIAL` without changing the exact residual-money projection.
-5. At step 718, a shed-adjacent `PLACE` of a sellable product that can be sold later that turn remains allowed.
-6. At step 718, animal placement on a structure, unsellable animal deposit, off-shed `PLACE`, and zero-effect `PLACE` are rejected by the guard as unable to create terminal cash.
-7. Inspection remains engine-faithful while guard projection uses the separately suppressed terminal unit state.
-
-Suggested implementation direction:
-
-- Extend `Issue.severity` with `PARTIAL`; do not make the guard suppress a non-destructive partial request.
-- Derive fulfilled quantities from the same exact unit scratch reducer and conservative market availability/money state already used for no-op detection.
-- Keep one issue per action/slot: malformed and terminal-policy findings take priority over partial telemetry.
-- Terminal usefulness must be evaluated on the guard's fail-closed sequential scratch state, including whether the placed item is a sellable product and whether it reaches the shed.
-- Preserve raw market indices and dynamic uncertainty rules already covered by tests.
-
-Land partial telemetry first, then tighten terminal `PLACE`; rerun the paired smoke before moving to replay fixtures or the soak.
-
-## Engine semantics that matter for the next agent
-
-- Unit phase runs before market phase.
-- Farmer runs first, then hands in observation order.
-- Atomic `PLANT` demand is checked before unit execution; overcommitting a crop suppresses all requests for that crop.
-- Market processes at most the first ten raw slots per player.
-- Each list index is paired with the opponent's same index.
-- `HIRE` and `BUY_LAND` are handled atomically in player order at that index.
-- `SELL`/`BUY_*` orders then execute unit-by-unit in lockstep; both players are quoted from the same pre-commit market inventory for each unit.
-- `SELL` is guaranteed to stop when the player's shed item reaches zero, independently of opponent activity.
-- `BUY_SEED` and `BUY_ANIMAL` have fixed unit costs.
-- `BUY_PRODUCT WHEAT/FERTILIZER` uses dynamic prices.
-- Market purchases can make the shed exceed its nominal capacity; the engine does not enforce the 100-item cap for buys.
-- Unit actions cannot use a hand hired in the same turn because hiring happens after the unit phase.
-
-The installed reference implementation is:
-
-```text
-.venv/Lib/site-packages/kaggle_environments/envs/kaggriculture/kaggriculture.py
-```
-
-Treat it as the source of truth and keep `kaggle-environments` pinned. Do not edit files inside `.venv`.
-
-## Git and handoff procedure
-
-- Continue on `feature/1-correctness-harness` unless the user changes scope.
-- Preserve unrelated user changes.
-- Before every commit, run the full suite, Ruff, `pip check`, `git diff --check`, and a staged token-pattern scan.
-- Commit focused checkpoints locally.
-- Push is currently blocked by the missing remote. Do not create a repository without explicit user direction.
-- Never stage ignored competition data, reports, virtual environments, credentials, or submission archives.
-- Update this file, `README.md`, and `ROADMAP.md` when the implementation boundary changes.
-
-## Submission gate
-
-Local completion does not authorize a Kaggle upload. A future agent must stop before any command equivalent to `kaggle competitions submit`, candidate upload, or submission-archive publication and obtain the user's explicit approval.
+- Research venv (Linux, fast): `~/.venvs/kaggri` — Python 3.12.13,
+  `kaggle-environments==1.32.3`, `kaggle==2.2.4`. Engine verified byte-identical
+  to the Windows `.venv` copy.
+- The Windows `.venv/` in the repo is retained for parity checks.
+- `nproc` reports 32 but parallel throughput saturates near 16 workers.

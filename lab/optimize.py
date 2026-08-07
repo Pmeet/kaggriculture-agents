@@ -54,6 +54,17 @@ SEARCH_SPACE = {
 
 def evaluate(module, params, opponent, seeds, workers=None):
     spec = {"module": module, "attr": "make_agent", "params": params, "name": "cand"}
+    if opponent == "POOL":
+        # Tuning against one frozen mirror converges on beating ourselves, which
+        # is not the same as beating the ladder. Scoring against a spread of
+        # archetypes -- and weighting the worst case -- keeps the result general.
+        from lab.pool import SEARCH_POOL, gauntlet
+        mean, worst, rows = gauntlet(spec, seeds, workers=workers,
+                                     pool=SEARCH_POOL, quiet=True)
+        best = max(rows, key=lambda r: r.score)
+        objective = 1000.0 * (mean + worst)
+        best.score_mean = mean  # type: ignore[attr-defined]
+        return objective, best
     report = run_match(spec, opponent, seeds, workers=workers)
     margin = report.mean_bank - report.mean_opponent_bank
     return margin, report

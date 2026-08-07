@@ -1,109 +1,124 @@
 # Kaggriculture Agent Workspace
 
-Local development kit for Kaggle's two-player Kaggriculture simulation competition.
+Development kit for Kaggle's two-player Kaggriculture simulation competition.
 
-No submission or upload is performed by this repository. Uploads remain a manual step and must not be run without explicit approval.
+Submissions are a manual, individually-approved step. Nothing in this repository
+uploads anything on its own.
 
 ## Quick Start
 
-The workspace-local virtual environment is already provisioned with Kaggle CLI `2.2.4` and `kaggle-environments` `1.32.3`.
+The research environment is a Linux virtualenv at `~/.venvs/kaggri`
+(Python 3.12.13, `kaggle-environments==1.32.3`, `kaggle==2.2.4`). The Windows
+`.venv/` in the repository is kept for parity checks; the installed engine in
+both is byte-identical.
 
-```powershell
-# Run the local tests.
-.\.venv\Scripts\python.exe -m unittest discover -s tests -v
+```bash
+# Tests and lint.
+~/.venvs/kaggri/bin/python -m unittest discover -s tests
+~/.venvs/kaggri/bin/python -m ruff check .
 
-# Run the project lint command.
-.\.venv\Scripts\ruff.exe check .
+# Score the submitted agent against the full opponent gauntlet.
+~/.venvs/kaggri/bin/python lab/pool.py 24
 
-# Run one complete 720-turn local game.
-.\.venv\Scripts\python.exe -c "from kaggle_environments import make; env=make('kaggriculture', configuration={'seed': 1}, debug=True); env.run(['main.py', 'starter']); print([(s.reward, s.status) for s in env.steps[-1]])"
+# One episode with a day-by-day diagnostic trace.
+~/.venvs/kaggri/bin/python lab/inspect_game.py main:agent agents.baseline_b:agent 1
 
-# Run seeds 1-3 from both seats and write reports/quick-check/{report.json,games.csv}.
-.\.venv\Scripts\python.exe -m kaggriculture_harness.cli --candidate main.py --opponent starter --seeds 1 2 3 --output reports/quick-check
+# The engine-derived economics table that drives the strategy.
+~/.venvs/kaggri/bin/python lab/economics.py
 ```
 
-For a clean rebuild with Python 3.12.13:
+To rebuild the research environment:
 
-```powershell
-python -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
+```bash
+uv venv --python 3.12 ~/.venvs/kaggri
+VIRTUAL_ENV=~/.venvs/kaggri uv pip install "kaggle-environments==1.32.3" "kaggle==2.2.4" ruff
 ```
 
-The direct package versions are pinned, but transitive dependencies are not locked. The full `kaggle-environments` install is retained locally for compatibility testing; the Kaggriculture agent itself uses only the Python standard library.
+`kaggle-environments` prints unrelated OpenSpiel/CABT loader warnings on first
+import. They are harmless; rely on exit codes and final `DONE` statuses.
 
-## Current Baseline
+## The Agent
 
-[`main.py`](main.py) is a deliberately simple deterministic carrot loop used to validate the entrypoint, Kaggle loader selection, and basic action contract:
+[`main.py`](main.py) is a self-contained, standard-library-only agent that runs a
+livestock-led farm economy. Against the built-in `starter` it banks about $100k
+to `starter`'s $3.5k.
 
-- buys one carrot seed;
-- plants on the current tile;
-- waters daily;
-- harvests at the maximum-yield day;
-- sells shed inventory;
-- liquidates recoverable products on actionable step 718 without overflowing the shed;
-- returns the required farmer/hands/market action schema.
+Every job — feed, care, harvest, water, plant, build, dig, place — is valued in
+dollars and assigned to units by `value - distance * action_cost`, where
+`action_cost` is the marginal job dropped for lack of labour. Selling replicates
+the engine's price curve exactly and stops at each product's own collapse point.
 
-The integration suite also completes a full episode from both player seats. The baseline is equivalent in strength to Kaggle's built-in `starter` and is not intended to be the first competitive strategy.
+The strategy follows from measurements in [`lab/economics.py`](lab/economics.py):
+labour is nearly free (ten hands cost $143/day for ~230 actions), the town
+drains ~3,300 units a season so premium goods trade well above base, and
+livestock dominates because its four daily jobs share one tile and it needs no
+watering. See [`AGENTS.md`](AGENTS.md) for the full design notes, the engine
+behaviours that differ from the published docs, and the open questions.
 
-## Evaluation Harness
+## Research Loop (`lab/`)
 
-The paired runner evaluates every seed twice, swapping the candidate between player seats. It records candidate-relative wins/losses/ties, bank margins, seat delta, action latency, validator issue counts, and completion status.
+Nothing under `lab/` is submitted.
 
-Each run writes:
+| Module | Purpose |
+| --- | --- |
+| `arena.py` | Paired matches from both seats, in worker processes |
+| `pool.py` | Opponent gauntlet, including archetypes from real ladder replays |
+| `optimize.py` | Coordinate-descent parameter search |
+| `economics.py` | Engine-derived crop/animal/market decision tables |
+| `inspect_game.py` | Per-episode diagnostics and revenue attribution |
+| `probe.py` | Dumps the agent's internal job list at chosen turns |
+| `replay.py` | Analyses downloaded Kaggle replays |
 
-- `report.json` — manifest, aggregate metrics, per-game results, Python/package versions, and SHA-256 hashes of the current single-file candidate, installed engine, and file-based opponent when applicable;
-- `games.csv` — one row per game for later comparisons.
+`arena.fast_play` skips the framework's per-step deep copy, which profiling put
+at over half a game's runtime. `tests/test_integration.py` pins it to identical
+results from the official `env.run` path.
 
-`kaggriculture_harness.actions` provides fail-closed structural checks, exact hand normalization, atomic seed reservation, the ten-market-slot rule, and an engine-backed scratch-state reducer. Unit actions are evaluated on deep copies in farmer-then-hands order, so the validator catches sequential no-ops, destructive shed overflow, and redundant fertilizer without mutating the live observation. Market validation starts from that post-unit state, consumes sequential `SELL` availability, projects fixed-price seed and animal purchases, advances Fibonacci hire and land costs, and preserves the first ten raw slot positions with engine-inert empty-list placeholders. Money and product availability use conservative bounds once opponent-sensitive `SELL` or `BUY_PRODUCT` orders make exact outcomes unknowable. The tournament runner observes and reports issues without changing the candidate's actions.
+Measurement discipline, learned the hard way: win rate over a few dozen games has
+a ±0.19 interval, so steer on paired bank margin and confirm head-to-head; always
+validate on held-out seeds; and tune against the pool rather than a single frozen
+copy of the agent.
 
-`kaggle-environments` may print unrelated OpenSpiel registration warnings during its first import. They do not affect Kaggriculture runs; rely on the test exit code and final `DONE` statuses.
+## Correctness Harness
+
+`kaggriculture_harness` runs agents from files and validates their actions
+against the engine's semantics — sequential no-ops, atomic seed over-commitment,
+the ten-market-slot rule, destructive overflow. It is the pre-submission gate and
+currently reports zero issues over full games.
 
 ## Authenticated Read Access
 
-The Kaggle token used during setup remains in WSL at `~/.kaggle/access_token` with mode `600`; it is not copied into this repository.
+The Kaggle token stays in WSL at `~/.kaggle/access_token` (mode 600) and is never
+copied into this repository. Scope it per command:
 
-Scope it to the commands inside a PowerShell `try` block, then remove it from the process environment:
-
-```powershell
-$kaggleToken = ((wsl.exe -e sh -lc 'cat "$HOME/.kaggle/access_token"') -join '').Trim()
-try {
-    $env:KAGGLE_API_TOKEN = $kaggleToken
-    .\.venv\Scripts\kaggle.exe competitions list -s kaggriculture
-} finally {
-    Remove-Item Env:KAGGLE_API_TOKEN -ErrorAction SilentlyContinue
-    Remove-Variable kaggleToken -ErrorAction SilentlyContinue
-}
+```bash
+KAGGLE_API_TOKEN="$(cat ~/.kaggle/access_token)" \
+  ~/.venvs/kaggri/bin/kaggle competitions leaderboard kaggriculture -s
 ```
 
-Useful read-only commands to place inside that `try` block:
-
-```powershell
-.\.venv\Scripts\kaggle.exe competitions files kaggriculture --format json
-.\.venv\Scripts\kaggle.exe competitions submissions kaggriculture --format json
-.\.venv\Scripts\kaggle.exe competitions leaderboard kaggriculture --show
-.\.venv\Scripts\kaggle.exe competitions topics list kaggriculture --sort-by top
-```
+Useful read-only commands: `competitions submissions kaggriculture`,
+`competitions episodes <SUBMISSION_ID>`, `competitions replay <EPISODE_ID> -p replays`.
+Downloaded replays are the only unbiased sample of what actually beats us.
 
 ## Official Material
 
-The authenticated competition download is stored locally under `competition-data/official/` and is intentionally gitignored because competition data may only be shared with participants who accepted the rules.
+Stored under gitignored `competition-data/official/`, since competition data may
+only be shared with participants who accepted the rules.
 
 - `competition-data/official/AGENTS.md` — local testing and submission guide
 - `competition-data/official/README.md` — full game mechanics
-- [`ROADMAP.md`](ROADMAP.md) — dated competition brief, risks, strategy, and delivery plan
-
-The current engine is also installed at `.venv/Lib/site-packages/kaggle_environments/envs/kaggriculture/`.
+- [`ROADMAP.md`](ROADMAP.md) — competition brief, risks, and delivery plan
 
 ## Submission Gate
 
-When explicitly authorized, a single-file submission is the root [`main.py`](main.py). A multi-file agent must be a `.tar.gz` whose archive root contains `main.py` directly, with no wrapping directory. The full bundle, including weights, must be at most 100 MiB.
+A single-file submission is the root [`main.py`](main.py). A multi-file agent
+must be a `.tar.gz` whose archive root contains `main.py` directly, at most
+100 MiB.
 
 Before any upload:
 
-1. Run all tests.
-2. Run paired seeds from both player seats against the current opponent suite.
-3. Confirm every game ends with `DONE` and no invalid-action diagnostics.
-4. Confirm maximum turn time is comfortably below one second.
-5. Confirm liquidation happens by actionable step 718.
-6. Inspect the exact bundle contents and size.
-7. Get explicit approval to submit.
+1. Run the tests and Ruff.
+2. Run the gauntlet from both seats.
+3. Confirm every game ends `DONE` with no validator issues.
+4. Confirm p95 turn latency is far below one second (currently ~0.6ms).
+5. Confirm nothing is left unsold in the shed at the final step.
+6. Get explicit approval for that specific submission.

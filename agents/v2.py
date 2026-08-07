@@ -412,7 +412,7 @@ def animal_order(params, info, market_inventory, day):
     return [(name, target) for _score, name, target in ranked]
 
 
-def livestock_plan(params, info, shed, day, money, market_inventory):
+def livestock_plan(params, info, shed, day, money, market_inventory, carried=None):
     """Pens to build and animals to buy, kept consistent with each other.
 
     Two accounting rules earn their keep here. Animals already sitting in the
@@ -426,9 +426,13 @@ def livestock_plan(params, info, shed, day, money, market_inventory):
     for _pos, kind in info["empty_structures"]:
         free[kind] = free.get(kind, 0) + 1
 
+    # An animal in a hand's inventory is in transit to its pen: it is neither
+    # placed nor in the shed, and forgetting it made the planner buy a
+    # replacement for every animal being walked across the farm.
+    carried = carried or {}
     waiting = {}
     for name in ANIMALS:
-        n = shed.get(name, 0)
+        n = shed.get(name, 0) + carried.get(name, 0)
         if n > 0:
             kind = ANIMALS[name]["structure"]
             waiting[kind] = waiting.get(kind, 0) + n
@@ -449,7 +453,12 @@ def livestock_plan(params, info, shed, day, money, market_inventory):
             if day + spec["first_yield_day"] >= LAST_DAY:
                 continue
             kind = spec["structure"]
-            short = max(0, target - info["animal_counts"].get(name, 0) - shed.get(name, 0))
+            owned = (
+                info["animal_counts"].get(name, 0)
+                + shed.get(name, 0)
+                + carried.get(name, 0)
+            )
+            short = max(0, target - owned)
             if short <= 0:
                 continue
             affordable = int(budget // spec["cost"])
@@ -469,7 +478,8 @@ def livestock_plan(params, info, shed, day, money, market_inventory):
 # Job construction
 # --------------------------------------------------------------------------
 
-def build_jobs(obs, farm, private, params, depots, day, hours_left, endgame, info, money):
+def build_jobs(obs, farm, private, params, depots, day, hours_left, endgame, info,
+               money, carried):
     market_inventory = obs["market"]["inventory"]
     seeds = private["seeds"]
     shed = private["shed"]
@@ -569,7 +579,7 @@ def build_jobs(obs, farm, private, params, depots, day, hours_left, endgame, inf
     # ---- Fill empty tiles: livestock pens near the shed, crops further out.
     if not endgame and info["empty"]:
         wanted, _purchases = livestock_plan(
-            params, info, shed, day, money, market_inventory
+            params, info, shed, day, money, market_inventory, carried
         )
         by_distance = sorted(info["empty"], key=lambda p: distance(p, nearest_shed(p, depots)))
         n_struct = min(len(wanted), len(by_distance))
@@ -866,7 +876,7 @@ def plan_market(obs, farm, private, params, shed, day, hour, step, info,
     # an animal already waiting in the shed.
     if slots > 0 and not endgame:
         _pens, purchases = livestock_plan(
-            params, info, shed, day, budget, market_inventory
+            params, info, shed, day, budget, market_inventory, carried
         )
         for name, want in purchases:
             if slots <= 0:
@@ -970,13 +980,18 @@ def _play(obs, params):
         units.append((pos, dict(inv)))
 
     depots = usable_shed_tiles(farm["tiles"])
+    carried = {}
+    for _pos, inv in units:
+        for item, count in inv.items():
+            if count > 0:
+                carried[item] = carried.get(item, 0) + count
     shed = dict(private["shed"])
     shed_total = sum(v for v in shed.values() if v > 0)
     info = census(farm)
 
     jobs, crop_choice, _crop_score = build_jobs(
         obs, farm, private, params, depots, day, hours_left, endgame, info,
-        farm["money"],
+        farm["money"], carried,
     )
 
     if endgame:
@@ -989,12 +1004,6 @@ def _play(obs, params):
             units, jobs, depots, hours_left, private["seeds"], params,
             shed, endgame, shed_total, action_cost, supplies,
         )
-
-    carried = {}
-    for _pos, inv in units:
-        for item, count in inv.items():
-            if count > 0:
-                carried[item] = carried.get(item, 0) + count
 
     # The unit phase runs before the market phase, so anything a hand is about
     # to PICKUP has already left the shed by the time our sell orders execute.

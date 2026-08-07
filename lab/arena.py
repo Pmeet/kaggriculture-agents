@@ -150,9 +150,76 @@ def play_game(candidate: Any, opponent: Any, seed: int, seat: int) -> GameResult
     )
 
 
+SHARED_OBSERVATION_FIELDS = ("farms", "market", "town", "day", "hour", "step")
+
+
+def fast_play(candidate: Any, opponent: Any, seed: int, seat: int) -> GameResult:
+    """Same episode as :func:`play_game`, without the framework's per-step copy.
+
+    ``env.run`` deep-copies the whole state once per agent per step inside
+    ``__get_shared_state``, then immediately overwrites the shared fields with
+    references anyway. Profiling put that copy at over half of a game's runtime.
+    Here the shared fields are handed over by reference and only the episode is
+    stepped, which roughly doubles search throughput.
+
+    The trade is that agents must not mutate the observation. Our agents copy
+    every structure they touch before use, and ``test_fast_runner_matches_env_run``
+    pins the two runners to identical banks, so any divergence is caught.
+    """
+    _quiet_imports()
+    from kaggle_environments import make
+
+    agents: list[Any] = [None, None]
+    agents[seat] = resolve_agent(normalize_spec(candidate))
+    agents[1 - seat] = resolve_agent(normalize_spec(opponent))
+
+    env = make("kaggriculture", configuration={"seed": seed}, debug=False)
+    resolved = [
+        env.agents[a] if isinstance(a, str) else a for a in agents
+    ]
+    env.reset(len(resolved))
+
+    error = ""
+    durations: list[float] = []
+    while not env.done:
+        shared = env.state[0].observation
+        actions = []
+        for index, act in enumerate(resolved):
+            observation = env.state[index].observation
+            if index != 0:
+                for field in SHARED_OBSERVATION_FIELDS:
+                    if field in shared:
+                        observation[field] = shared[field]
+            started = time.perf_counter()
+            try:
+                actions.append(act(observation))
+            except Exception as exc:  # pragma: no cover - defensive
+                error = error or f"{type(exc).__name__}: {exc}"
+                actions.append({"farmer": ["PASS"], "hands": [], "market": []})
+            if index == seat:
+                durations.append(time.perf_counter() - started)
+        env.step(actions)
+
+    final = env.steps[-1]
+    banks = [float(s.reward) if s.reward is not None else 0.0 for s in final]
+    statuses = [str(s.status) for s in final]
+    return GameResult(
+        seed=seed,
+        seat=seat,
+        candidate_bank=banks[seat],
+        opponent_bank=banks[1 - seat],
+        candidate_status=statuses[seat],
+        opponent_status=statuses[1 - seat],
+        max_step_seconds=max(durations) if durations else 0.0,
+        mean_step_seconds=statistics.fmean(durations) if durations else 0.0,
+        error=error,
+    )
+
+
 def _worker(job: tuple) -> GameResult:
-    candidate, opponent, seed, seat = job
-    return play_game(candidate, opponent, seed, seat)
+    candidate, opponent, seed, seat, fast = job
+    runner = fast_play if fast else play_game
+    return runner(candidate, opponent, seed, seat)
 
 
 @dataclass
@@ -236,11 +303,16 @@ def run_match(
     seeds: Iterable[int],
     workers: int | None = None,
     both_seats: bool = True,
+    fast: bool = True,
 ) -> MatchReport:
-    """Play ``seeds`` (from both seats by default) and aggregate."""
+    """Play ``seeds`` (from both seats by default) and aggregate.
+
+    ``fast`` uses the lean runner; set it False for a pre-submission check that
+    goes through the official ``env.run`` path exactly.
+    """
     seeds = list(seeds)
     seats: Sequence[int] = (0, 1) if both_seats else (0,)
-    jobs = [(candidate, opponent, seed, seat) for seed in seeds for seat in seats]
+    jobs = [(candidate, opponent, seed, seat, fast) for seed in seeds for seat in seats]
     workers = workers or min(len(jobs), max(1, (os.cpu_count() or 4) - 2))
 
     started = time.time()

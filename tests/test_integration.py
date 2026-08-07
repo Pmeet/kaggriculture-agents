@@ -23,3 +23,20 @@ class AgentIntegrationTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class FastRunnerParityTest(unittest.TestCase):
+    """The research loop must not measure a different game from the real one."""
+
+    def test_fast_runner_matches_env_run(self):
+        from lab.arena import fast_play, play_game
+
+        candidate = {"module": "main", "attr": "agent", "name": "main"}
+        for seed, seat in ((1, 0), (2, 1)):
+            official = play_game(candidate, "starter", seed, seat)
+            lean = fast_play(candidate, "starter", seed, seat)
+            self.assertEqual(official.candidate_bank, lean.candidate_bank,
+                             f"seed {seed} seat {seat}")
+            self.assertEqual(official.opponent_bank, lean.opponent_bank,
+                             f"seed {seed} seat {seat}")
+            self.assertEqual(official.candidate_status, lean.candidate_status)

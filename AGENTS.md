@@ -1,15 +1,16 @@
 # Kaggriculture Agent Handoff
 
-Last updated: 2026-08-07 (Asia/Calcutta)
+Last updated: 2026-08-11 (Asia/Calcutta)
 
 Durable handoff for any agent continuing this work. Read with `README.md` and
 `ROADMAP.md`.
 
 ## Non-negotiable constraints
 
-- **Do not upload or submit to Kaggle without the user's explicit approval for
-  that submission.** Read-only Kaggle API calls and local simulation are fine.
-  Two submissions have been made, each individually approved.
+- The user granted **standing authority to submit** on 2026-08-07 ("don't need to
+  ask me for submissions if you decide it's worth it"). Judgement still applies:
+  five slots a day, only the latest two stay active, so submit when local
+  evidence says a candidate beats the live one.
 - Never print, commit, or expose the Kaggle access token. It lives at
   `~/.kaggle/access_token` (mode 600) in WSL and is scoped per command via
   `KAGGLE_API_TOKEN="$(cat ~/.kaggle/access_token)"`.
@@ -35,6 +36,31 @@ about $100k to `starter`'s $3.5k; the pre-existing carrot-loop baseline tied
 | `agents/baseline_a.py` (first submission) | 71-9 | $76,967 vs $51,454 |
 
 Two submissions are live. Ratings converge over hours, so read them late.
+
+## The engine was rebalanced -- pin 1.32.6
+
+The ladder runs **kaggle-environments 1.32.6**, not the 1.32.3 this repo was
+originally pinned to. Confirmed from a live replay of our own submission:
+`townCenterSellInterval: 24` and `unlocked_shops` containing duplicates. If a
+result looks impossible, check the engine version first.
+
+Crops, animals and the price curve are **unchanged**. What changed:
+
+- Town centre drains 1 unit per product every 24 turns, flat. The old rising
+  multiplier (2x after day 10, 4x after day 20) is gone. **Melon demand fell from
+  ~140 units a season to exactly 30** -- no shop demands melon.
+- Shops are drawn **with replacement**, capped at 8 instances, so a season can
+  contain four pizza shops and no yarn store. Expected season demand and its
+  spread (400 sampled seasons): wheat 523 (318-696), strawberry 422 (210-624),
+  milk 331 (138-534), carrot 312 (84-570), wool 246 (30-534), egg 225 (66-390),
+  tomato 222 (30-390), melon 30 (fixed), fertilizer 0.
+- Shed operations (PICKUP / DROP / shed-PLACE) resolve **before** the LOCKED
+  guard, so all four shed-access tiles work from turn one.
+- `BUY_PRODUCT` and `BUY_ANIMAL` now respect `shedCapacity`.
+
+That per-game demand spread is the standing opportunity: the shops are public,
+and the published meta analysis shows most top players running fixed hardcoded
+routes that cannot react to them.
 
 ## What the engine actually does
 

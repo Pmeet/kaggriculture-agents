@@ -1,4 +1,4 @@
-"""Kaggriculture v2: livestock-led economy with economic action routing.
+"""Kaggriculture submission agent: livestock-led economy with economic routing.
 
 What earlier versions taught us, measured on real episodes:
 
@@ -120,6 +120,9 @@ DEFAULTS = {
     # --- Market.
     "sell_floor_frac": 0.4,
     "max_price_impact": 0.32,
+    "premium_floor_frac": 0.40,
+    "premium_price_impact": 0.32,
+    "steep_glut_target": 1.0,
     "endgame_relax_days": 1.6,
     "seed_buffer": 10,
     "min_cash": 30,
@@ -133,7 +136,7 @@ DEFAULTS = {
     "dig_fraction": 0.25,
     "build_fraction": 0.8,
     "fertilizer_capture": 0.9,
-    "plant_commitment_cost": 42.0,
+    "plant_commitment_cost": 60.0,
 }
 
 
@@ -951,8 +954,20 @@ def plan_sales(market_inventory, shed, params, step, n_animals, slots, carried=N
         if slots <= 0:
             break
         current = price_at(item, inv)
-        floor_price = max(PRICE_FLOOR, MARKET_PARAMS[item]["base"] * floor_frac,
-                          current * (1.0 - impact))
+        # Glut curves differ by an order of magnitude. Wheat and egg are
+        # logarithmic and shrug off any volume we can produce; melon is squared
+        # and wool nearly so, and a single harvest dumped at once takes melon
+        # from $250 to $25. Those products get a much higher floor, because the
+        # town keeps draining the market and the price climbs back if we wait.
+        steep = MARKET_PARAMS[item]["above_target"] >= params["steep_glut_target"]
+        item_floor = params["premium_floor_frac"] if steep else floor_frac
+        item_impact = params["premium_price_impact"] if steep else impact
+        if days_left < relax:
+            ratio = max(0.0, days_left / relax)
+            item_floor *= ratio
+            item_impact = item_impact + (1.0 - item_impact) * (1 - ratio)
+        floor_price = max(PRICE_FLOOR, MARKET_PARAMS[item]["base"] * item_floor,
+                          current * (1.0 - item_impact))
         quantity = sellable_quantity(item, inv, have, floor_price)
         if quantity < have and overflow > 0:
             forced = min(have - quantity, overflow)
@@ -1034,21 +1049,6 @@ def _play(obs, params):
             taken = min(int(unit_action[2]), shed.get(item, 0))
             shed[item] = shed.get(item, 0) - taken
             carried[item] = carried.get(item, 0) + taken
-
-    # ...and a DROP lands *into* the shed before the same turn's sell orders
-    # execute. On the last actionable step that is the difference between
-    # banking the final harvest and leaving it in the shed scoring nothing.
-    if endgame:
-        room = max(0, SHED_CAPACITY - sum(v for v in shed.values() if v > 0))
-        for unit_action, (_pos, inv) in zip(unit_actions, units):
-            if not unit_action or unit_action[0] != "DROP" or room <= 0:
-                continue
-            for item, count in inv.items():
-                if count <= 0:
-                    continue
-                moved = min(count, room)
-                shed[item] = shed.get(item, 0) + moved
-                room -= moved
 
     market = plan_market(
         obs, farm, private, params, shed, day, hour, step, info, endgame,

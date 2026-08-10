@@ -1,4 +1,4 @@
-"""Kaggriculture v2: livestock-led economy with economic action routing.
+"""Kaggriculture submission agent: livestock-led economy with economic routing.
 
 What earlier versions taught us, measured on real episodes:
 
@@ -110,9 +110,11 @@ DEFAULTS = {
     # a goose still costs $300 and a daily wheat, so it loses to a cow outright.
     # Herd size is the single biggest driver of income: a ladder replay we lost
     # ran 452 animal-days to our 220.
-    "target_cows": 16,
-    "target_sheep": 10,
-    "target_geese": 0,
+    "target_animals": 24,
+    "min_animal_profit": 0.0,
+    "target_cows": 14,
+    "target_sheep": 8,
+    "target_geese": 16,
     # --- Feed.
     "feed_buffer_days": 2,
     "wheat_buy_max_price": 60,
@@ -133,7 +135,7 @@ DEFAULTS = {
     "dig_fraction": 0.25,
     "build_fraction": 0.8,
     "fertilizer_capture": 0.9,
-    "plant_commitment_cost": 42.0,
+    "plant_commitment_cost": 60.0,
 }
 
 
@@ -304,10 +306,22 @@ def animal_profit(name, day, market_inventory, owned, params):
     $400 animal, which is the best return on the board and the reason buying
     livestock late is so expensive.
     """
+    return animal_yield_value(name, day, market_inventory, owned, params) \
+        - ANIMALS[name]["cost"]
+
+
+def animal_yield_value(name, day, market_inventory, owned, params):
+    """Value of the production a placed animal still has ahead of it, net of feed.
+
+    Excludes the purchase price on purpose. Once an animal is bought that cost is
+    sunk, so pricing PLACE at marginal *profit* made placement look worthless as
+    soon as the herd was big enough to depress the projected price, and left
+    paid-for animals standing in the shed beside empty pens.
+    """
     spec = ANIMALS[name]
     productive = LAST_DAY - day - spec["first_yield_day"]
     if productive < 0:
-        return -1.0
+        return 0.0
     interval = max(1, spec["interval"])
     productions = productive // interval + 1
     units = productions * min(spec["max_held"], 1 + spec["interval"])
@@ -318,7 +332,7 @@ def animal_profit(name, day, market_inventory, owned, params):
     days = LAST_DAY - day
     revenue = units * price + days * fert_price * params["fertilizer_capture"]
     feed = days * price_at("WHEAT", market_inventory.get("WHEAT", MARKET_I0) - 1)
-    return revenue - spec["cost"] - feed
+    return revenue - feed
 
 
 def crop_profit(crop, market_inventory, planted, day):
@@ -395,7 +409,16 @@ def census(farm):
 
 
 def animal_targets(params):
-    """Livestock wanted, ordered by value per tile."""
+    """Per-species ceilings. These are safety rails, not the plan.
+
+    Composition is decided by marginal profit instead, because each species
+    saturates its own market: milk and wool collapse after 40-60 units above
+    equilibrium, while egg's glut curve is logarithmic and absorbs effectively
+    unlimited volume. Fixed per-species targets cannot express that -- they buy
+    cows until the cow quota is full even when the tenth cow is worth less than
+    the first goose -- and every large herd we built that way crashed its own
+    prices. Ladder winners run 26-animal herds spread across species.
+    """
     return (
         ("COW", params["target_cows"]),
         ("SHEEP", params["target_sheep"]),
@@ -403,12 +426,18 @@ def animal_targets(params):
     )
 
 
-def animal_order(params, info, market_inventory, day):
-    """Livestock ranked by profit per dollar, dropping anything unprofitable."""
+def animal_order(params, info, market_inventory, day, owned=None):
+    """Livestock ranked by marginal profit per dollar, unprofitable ones dropped.
+
+    ``owned`` is the herd charged against the projected price, so each purchase
+    is valued after the ones we already hold, which is what makes the ranking
+    roll over from cows to sheep to geese as each product's market fills up.
+    """
+    counts = owned if owned is not None else info["animal_counts"]
     ranked = []
     for name, target in animal_targets(params):
-        worth = animal_profit(name, day, market_inventory, info["animal_counts"], params)
-        if worth <= 0:
+        worth = animal_profit(name, day, market_inventory, counts, params)
+        if worth <= params["min_animal_profit"]:
             continue
         ranked.append((worth / ANIMALS[name]["cost"], name, target))
     ranked.sort(reverse=True)
@@ -451,27 +480,43 @@ def livestock_plan(params, info, shed, day, money, market_inventory, carried=Non
     budget = max(0.0, money - params["work_reserve"] - params["animal_reserve"])
     purchases = []
     if day <= params["animal_last_day"]:
-        for name, target in animal_order(params, info, market_inventory, day):
+        # Charge each candidate against the herd we already own *including* the
+        # ones added earlier in this same decision, so a run of purchases walks
+        # down the marginal-value curve instead of buying the same species until
+        # its quota is full.
+        owned = dict(info["animal_counts"])
+        for name in ANIMALS:
+            owned[name] = owned.get(name, 0) + shed.get(name, 0) + carried.get(name, 0)
+        herd = sum(owned.values())
+        wanted = {}
+        while herd < params["target_animals"]:
+            ranking = animal_order(params, info, market_inventory, day, owned)
+            picked = None
+            for name, target in ranking:
+                spec = ANIMALS[name]
+                if day + spec["first_yield_day"] >= LAST_DAY:
+                    continue
+                if owned.get(name, 0) >= target:
+                    continue
+                picked = name
+                break
+            if picked is None:
+                break
+            owned[picked] = owned.get(picked, 0) + 1
+            wanted[picked] = wanted.get(picked, 0) + 1
+            herd += 1
+
+        for name, want in wanted.items():
             spec = ANIMALS[name]
-            if day + spec["first_yield_day"] >= LAST_DAY:
-                continue
             kind = spec["structure"]
-            owned = (
-                info["animal_counts"].get(name, 0)
-                + shed.get(name, 0)
-                + carried.get(name, 0)
-            )
-            short = max(0, target - owned)
-            if short <= 0:
-                continue
             affordable = int(budget // spec["cost"])
-            buy = min(short, spare.get(kind, 0), affordable)
+            buy = min(want, spare.get(kind, 0), affordable)
             if buy > 0:
                 purchases.append((name, buy))
                 spare[kind] = spare.get(kind, 0) - buy
                 budget -= buy * spec["cost"]
             # Build ahead only for stock the bank can actually cover.
-            ahead = min(short - buy, int(budget // spec["cost"]))
+            ahead = min(want - buy, int(budget // spec["cost"]))
             pens.extend([kind] * max(0, ahead))
 
     return pens[: params["max_structures_ahead"]], purchases
@@ -528,15 +573,22 @@ def build_jobs(obs, farm, private, params, depots, day, hours_left, endgame, inf
 
     # ---- Empty structures holding stock we already paid for.
     if not endgame:
+        available = {name: shed.get(name, 0) for name in ANIMALS}
         for pos, kind in info["empty_structures"]:
+            best_name, best_worth = None, 0.0
             for name, spec in ANIMALS.items():
-                if spec["structure"] != kind or shed.get(name, 0) <= 0:
+                if spec["structure"] != kind or available.get(name, 0) <= 0:
                     continue
-                # An unplaced animal is dead capital; realising it beats planting.
-                worth = animal_profit(name, day, market_inventory, info["animal_counts"], params)
-                add(pos, ["PLACE", name, 1], max(50.0, worth + spec["cost"]),
-                    "PLACE", need=name)
-                break
+                worth = animal_yield_value(name, day, market_inventory,
+                                           info["animal_counts"], params)
+                if best_name is None or worth > best_worth:
+                    best_name, best_worth = name, worth
+            if best_name is None:
+                continue
+            available[best_name] -= 1
+            # An unplaced animal is dead capital; realising it beats planting.
+            add(pos, ["PLACE", best_name, 1], max(50.0, best_worth), "PLACE",
+                need=best_name)
 
     # ---- Crops.
     for pos, tile in info["plants"]:
@@ -590,7 +642,9 @@ def build_jobs(obs, farm, private, params, depots, day, hours_left, endgame, inf
             if i < n_struct:
                 kind = wanted[i]
                 best = max(
-                    (animal_profit(n, day, market_inventory, info["animal_counts"], params)
+                    (animal_yield_value(n, day, market_inventory,
+                                        info["animal_counts"], params)
+                     - (0.0 if shed.get(n, 0) > 0 else ANIMALS[n]["cost"])
                      for n, sp in ANIMALS.items() if sp["structure"] == kind),
                     default=0.0,
                 )
@@ -1034,21 +1088,6 @@ def _play(obs, params):
             taken = min(int(unit_action[2]), shed.get(item, 0))
             shed[item] = shed.get(item, 0) - taken
             carried[item] = carried.get(item, 0) + taken
-
-    # ...and a DROP lands *into* the shed before the same turn's sell orders
-    # execute. On the last actionable step that is the difference between
-    # banking the final harvest and leaving it in the shed scoring nothing.
-    if endgame:
-        room = max(0, SHED_CAPACITY - sum(v for v in shed.values() if v > 0))
-        for unit_action, (_pos, inv) in zip(unit_actions, units):
-            if not unit_action or unit_action[0] != "DROP" or room <= 0:
-                continue
-            for item, count in inv.items():
-                if count <= 0:
-                    continue
-                moved = min(count, room)
-                shed[item] = shed.get(item, 0) + moved
-                room -= moved
 
     market = plan_market(
         obs, farm, private, params, shed, day, hour, step, info, endgame,

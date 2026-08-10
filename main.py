@@ -133,7 +133,7 @@ DEFAULTS = {
     "dig_fraction": 0.25,
     "build_fraction": 0.8,
     "fertilizer_capture": 0.9,
-    "plant_commitment_cost": 60.0,
+    "plant_commitment_cost": 42.0,
 }
 
 
@@ -1034,6 +1034,21 @@ def _play(obs, params):
             taken = min(int(unit_action[2]), shed.get(item, 0))
             shed[item] = shed.get(item, 0) - taken
             carried[item] = carried.get(item, 0) + taken
+
+    # ...and a DROP lands *into* the shed before the same turn's sell orders
+    # execute. On the last actionable step that is the difference between
+    # banking the final harvest and leaving it in the shed scoring nothing.
+    if endgame:
+        room = max(0, SHED_CAPACITY - sum(v for v in shed.values() if v > 0))
+        for unit_action, (_pos, inv) in zip(unit_actions, units):
+            if not unit_action or unit_action[0] != "DROP" or room <= 0:
+                continue
+            for item, count in inv.items():
+                if count <= 0:
+                    continue
+                moved = min(count, room)
+                shed[item] = shed.get(item, 0) + moved
+                room -= moved
 
     market = plan_market(
         obs, farm, private, params, shed, day, hour, step, info, endgame,

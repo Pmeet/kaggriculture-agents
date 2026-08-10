@@ -1,4 +1,6 @@
-"""Kaggriculture v2: livestock-led economy with economic action routing.
+"""Frozen benchmark snapshot (do not edit) -- third promoted agent.
+
+Kaggriculture submission agent: livestock-led economy with economic routing.
 
 What earlier versions taught us, measured on real episodes:
 

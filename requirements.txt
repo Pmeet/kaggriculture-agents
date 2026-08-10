@@ -1,2 +1,2 @@
 kaggle==2.2.4
-kaggle-environments==1.32.3
+kaggle-environments==1.32.6

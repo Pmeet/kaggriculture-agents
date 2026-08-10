@@ -23,6 +23,7 @@ from kaggriculture_harness import actions as validator  # noqa: E402
 counts = collections.Counter()
 banks = []
 crashes = []
+strandings = []
 
 
 def wrapped(obs):
@@ -41,11 +42,19 @@ for seed in (1, 2, 3, 4):
     env.run([wrapped, "starter"])
     final = env.steps[-1]
     banks.append(final[0].reward)
-    leftover = {k: v for k, v in final[0].observation["private"]["shed"].items() if v > 0}
+    shed = final[0].observation["private"]["shed"]
+    produce = {k: v for k, v in shed.items() if v > 0 and k in main.PRODUCTS}
+    stranded = {k: v for k, v in shed.items() if v > 0 and k in main.ANIMALS}
     assert str(final[0].status) == "DONE", f"seed {seed} status {final[0].status}"
-    assert not leftover, f"seed {seed} left {leftover} unsold"
+    # Produce left in the shed scores nothing, so this must always be empty.
+    assert not produce, f"seed {seed} left {produce} unsold"
+    # Livestock cannot be sold at all, so anything here is capital that never
+    # earned: worth reporting, but not a correctness failure.
+    if stranded:
+        strandings.append((seed, stranded))
 
 print(f"banks {banks}")
 print(f"issues {dict(counts) or 'none'}")
+print(f"stranded livestock {strandings or 'none'}")
 if crashes:
     print(crashes[0][-800:])

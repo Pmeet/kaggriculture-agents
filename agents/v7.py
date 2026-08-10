@@ -1,4 +1,4 @@
-"""Kaggriculture v2: livestock-led economy with economic action routing.
+"""Kaggriculture submission agent: livestock-led economy with economic routing.
 
 What earlier versions taught us, measured on real episodes:
 
@@ -84,6 +84,10 @@ MARKET_PARAMS = {
 
 LAND_PRICES = [1000, 2000, 4000]
 
+# kaggle-environments >= 1.32.4 moved shed operations ahead of the LOCKED
+# guard. Set False only if running against an older engine.
+SHED_OPS_IGNORE_LOCKED = True
+
 DEFAULTS = {
     # --- Labour. Hands 1..8 cost $54 in total, so cheap labour is nearly free.
     "max_hands": 14,
@@ -121,6 +125,8 @@ DEFAULTS = {
     "sell_floor_frac": 0.4,
     "max_price_impact": 0.32,
     "endgame_relax_days": 1.6,
+    "max_sell_batch": 6,
+    "liquidate_days": 0.5,
     "seed_buffer": 10,
     "min_cash": 30,
     # --- Routing.
@@ -212,16 +218,20 @@ def step_toward(pos, target):
 
 
 def usable_shed_tiles(tiles):
-    """Shed-access tiles we can actually transact on.
+    """Shed-access tiles we can transact on.
 
-    The engine bails out of every tile operation on a ``LOCKED`` tile before it
-    reaches PICKUP or DROP, and hands spawn on all four access tiles regardless
-    of which quadrants we own -- so a unit standing on a locked one silently
-    does nothing.
+    The rebalanced engine resolves PICKUP, DROP and shed-PLACE *before* its
+    LOCKED guard, precisely because hands spawn on all four access tiles and
+    three of them start locked. Restricting ourselves to unlocked tiles -- which
+    the earlier engine required -- now just walks hands to the far corner for
+    nothing, so all four are used and the locked ones are kept as a fallback.
     """
     board_size = len(tiles)
-    usable = [(x, y) for (x, y) in shed_tiles(board_size) if tiles[y][x] != "LOCKED"]
-    return usable or [shed_tiles(board_size)[0]]
+    every = shed_tiles(board_size)
+    if SHED_OPS_IGNORE_LOCKED:
+        return every
+    usable = [(x, y) for (x, y) in every if tiles[y][x] != "LOCKED"]
+    return usable or [every[0]]
 
 
 def nearest_shed(pos, depots):
@@ -931,6 +941,7 @@ def plan_sales(market_inventory, shed, params, step, n_animals, slots, carried=N
     """
     days_left = (EPISODE_STEPS - step) / TURNS_PER_DAY
     relax = params["endgame_relax_days"]
+    liquidate = days_left <= params["liquidate_days"]
     if days_left <= 0.1:
         floor_frac, impact = 0.0, 1.0
     elif days_left < relax:
@@ -965,6 +976,13 @@ def plan_sales(market_inventory, shed, params, step, n_animals, slots, carried=N
         floor_price = max(PRICE_FLOOR, MARKET_PARAMS[item]["base"] * floor_frac,
                           current * (1.0 - impact))
         quantity = sellable_quantity(item, inv, have, floor_price)
+        # Meter the batch. A price floor alone still lets one turn dump a whole
+        # harvest, and the first units then earn far more than the last. Selling
+        # a few units every turn instead lets town consumption drain the market
+        # back between batches, which lifts the average realised price. This is
+        # what the top of the ladder does: 4-8 units per order, every turn.
+        if not liquidate:
+            quantity = min(quantity, params["max_sell_batch"])
         if quantity < have and overflow > 0:
             forced = min(have - quantity, overflow)
             quantity += forced

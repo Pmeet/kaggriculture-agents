@@ -148,6 +148,7 @@ DEFAULTS = {
     "work_in_passing": False,
     "rival_horizon": 3,
     "sells_first": True,
+    "sell_order": "impact",
     "max_sell_slots": 7,
 }
 
@@ -1142,7 +1143,19 @@ def plan_sales(market_inventory, shed, params, step, n_animals, slots, carried=N
         if have > 0:
             inv = market_inventory.get(item, MARKET_I0)
             stock.append((price_at(item, inv) * have, item, have, inv))
-    stock.sort(reverse=True)
+    # Queue position is worth about 11% on a premium sale, so the first slot
+    # should go to whichever sale loses the most by waiting -- the product whose
+    # price falls fastest as its own units land, not simply the biggest pile.
+    if params["sell_order"] == "impact":
+        ranked = []
+        for weight, item, have, inv in stock:
+            now = price_at(item, inv)
+            after = price_at(item, inv + max(1, have))
+            ranked.append(((now - after) * have, weight, item, have, inv))
+        ranked.sort(reverse=True)
+        stock = [(w, item, have, inv) for _drop, w, item, have, inv in ranked]
+    else:
+        stock.sort(reverse=True)
 
     orders = []
     for _weight, item, have, inv in stock:

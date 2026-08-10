@@ -139,6 +139,13 @@ DEFAULTS = {
     "fertilizer_capture": 0.9,
     "plant_commitment_cost": 42.0,
     "town_pull_weight": 0.5,
+    # Doing a job on the tile a unit is passing over measured neutral-to-negative
+    # head to head (0.512/0.456 against 0.525/0.537 without), even though it
+    # lifted the bank ~20% against `starter`. Labour is not the binding
+    # constraint -- 16-24% of unit turns are already idle -- so saving actions
+    # converts to money only where there is unmet demand to spend them on, and
+    # against a real opponent there is not. Kept as a switch, off by default.
+    "work_in_passing": False,
 }
 
 
@@ -560,12 +567,24 @@ def build_jobs(obs, farm, private, params, depots, day, hours_left, endgame, inf
         job.update(extra)
         jobs.append(job)
 
+    def marginal_price(item):
+        """What the next unit of `item` actually fetches.
+
+        Priced at the market *after* the stock we are already holding unsold,
+        so work whose output cannot be sold stops looking valuable. Fertilizer
+        makes this vivid: no town building consumes it, so a shed full of it is
+        worth far less than the spot price implies, and valuing collection at
+        spot had units gathering dung they could never bank.
+        """
+        held = shed.get(item, 0) + carried.get(item, 0)
+        return price_at(item, market_inventory.get(item, MARKET_I0) + held)
+
     # ---- Livestock: four co-located jobs per tile, no watering, no replanting.
-    fert_price = price_at("FERTILIZER", market_inventory.get("FERTILIZER", MARKET_I0))
+    fert_price = marginal_price("FERTILIZER")
     for pos, tile in info["animals"]:
         spec = ANIMALS[tile["animal"]]
         product = spec["product"]
-        unit_price = price_at(product, market_inventory.get(product, MARKET_I0))
+        unit_price = marginal_price(product)
         held = tile.get("yield_units", 0)
 
         if held > 0:
@@ -611,7 +630,7 @@ def build_jobs(obs, farm, private, params, depots, day, hours_left, endgame, inf
         cd = CROPS[crop]
         age = day - tile["planted_day"]
         held = tile.get("yield_units", 0)
-        unit_price = price_at(crop, market_inventory.get(crop, MARKET_I0))
+        unit_price = marginal_price(crop)
         ripe = held > 0 and age >= cd["first_yield_day"]
 
         if ripe and (endgame or age >= harvest_age(crop) or held >= cd["max_yield"]):
@@ -790,6 +809,21 @@ def assign_units(units, jobs, depots, hours_left, seeds, params, shed, endgame,
     # earlier unit already took, which used to leave 66 pickups a game as no-ops.
     pool = {item: shed.get(item, 0) for item in pickup_needs}
 
+    # Work waiting on the tile a unit is *already standing on* costs one turn;
+    # walking back for it later costs the round trip. Units cross the animal
+    # block on every shed run, and measurement showed them stepping off a tile
+    # with fertilizer waiting on 34% of all moves. Doing the job in passing
+    # delays the trip by a turn and is worth it whenever the job beats what a
+    # turn is worth.
+    en_route = {}
+    for ji in range(len(jobs)):
+        if ji in taken_job:
+            continue
+        job = jobs[ji]
+        if job["kind"] in ("PLANT", "BUILD", "PLACE"):
+            continue
+        en_route.setdefault(tuple(job["pos"]), []).append(ji)
+
     actions = []
     # Each DROP this turn eats into the same shed, so the room left has to be
     # tracked across units: checking every unit against the turn's opening
@@ -821,10 +855,34 @@ def assign_units(units, jobs, depots, hours_left, seeds, params, shed, endgame,
             continue
         if tuple(pos) == tuple(job["pos"]):
             actions.append(list(job["action"]))
-        else:
-            move = step_toward(pos, job["pos"])
-            actions.append(move if move else ["PASS"])
+            continue
+        detour = None
+        if params["work_in_passing"]:
+            detour = _work_in_passing(pos, inv, jobs, en_route, taken_job, action_cost)
+        if detour is not None:
+            actions.append(detour)
+            continue
+        move = step_toward(pos, job["pos"])
+        actions.append(move if move else ["PASS"])
     return actions
+
+
+def _work_in_passing(pos, inv, jobs, en_route, taken_job, action_cost):
+    """Best unclaimed job on the tile this unit is standing on, if it pays."""
+    best, best_value = None, action_cost
+    for ji in en_route.get(tuple(pos), ()):
+        if ji in taken_job:
+            continue
+        job = jobs[ji]
+        item = job.get("need")
+        if item and inv.get(item, 0) <= 0:
+            continue
+        if job["value"] > best_value:
+            best, best_value = ji, job["value"]
+    if best is None:
+        return None
+    taken_job.add(best)
+    return list(jobs[best]["action"])
 
 
 def idle_action(pos, inv, depots, room, endgame, supplies=()):

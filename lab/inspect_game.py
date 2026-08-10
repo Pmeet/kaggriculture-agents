@@ -52,6 +52,8 @@ def run(candidate, opponent, seed=1, seat=0, verbose=True):
     market_counts = collections.Counter()
     sold_units = collections.Counter()
     sold_value = collections.Counter()
+    filled_units = collections.Counter()
+    filled_value = collections.Counter()
     idle_actions = 0
     total_unit_actions = 0
     hires = 0
@@ -69,16 +71,28 @@ def run(candidate, opponent, seed=1, seat=0, verbose=True):
                 if op in ("PASS",):
                     idle_actions += 1
             prices = states[0].observation["market"]["prices"]
+            shed = states[seat].observation["private"]["shed"]
             for order in action.get("market", []) or []:
                 if isinstance(order, list) and order:
                     market_counts[order[0]] += 1
                     if order[0] == "HIRE":
                         hires += 1
                     elif order[0] == "SELL" and len(order) >= 3:
-                        # Requested, not necessarily filled; good enough to see
-                        # which products the money actually comes from.
-                        sold_units[order[1]] += int(order[2])
-                        sold_value[order[1]] += int(order[2]) * prices.get(order[1], 0)
+                        # Report a range, because neither bound is the truth.
+                        # The request over-counts: a standing order repeats every
+                        # turn but only fills until the shed empties. The
+                        # shed-capped figure under-counts: the observation shows
+                        # the shed *before* this turn's unit phase, so anything
+                        # a hand drops before the market runs is missed.
+                        # Trusting the upper bound alone made melon look like it
+                        # earned $13 a unit, when removing melon costs $85k.
+                        item = order[1]
+                        requested = int(order[2])
+                        sold_units[item] += requested
+                        sold_value[item] += requested * prices.get(item, 0)
+                        filled = min(requested, shed.get(item, 0))
+                        filled_units[item] += filled
+                        filled_value[item] += filled * prices.get(item, 0)
 
         if verbose and i % TURNS_PER_DAY == 0 and i < len(env.steps) - 1:
             obs = states[0].observation
@@ -120,9 +134,10 @@ def run(candidate, opponent, seed=1, seat=0, verbose=True):
     for op, n in action_counts.most_common():
         print(f"   {op:<20}{n:>7}")
     print(f"market orders: {dict(market_counts)}  (hires={hires})")
-    print("revenue attribution (requested sells at quoted price):")
+    print("revenue attribution, bracketed (shed-capped .. requested):")
     for item, value in sold_value.most_common():
-        print(f"   {item:<12}{sold_units[item]:>7} units  ~${value:>10,.0f}")
+        print(f"   {item:<12}{filled_units[item]:>6}-{sold_units[item]:<6} units  "
+              f"~${filled_value[item]:>9,.0f} - ${value:>10,.0f}")
     return env
 
 

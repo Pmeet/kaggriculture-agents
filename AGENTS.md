@@ -75,15 +75,16 @@ constants and price curve against it.
 - `FERTILIZER` **can be sold**, and no town building consumes it, so it is a
   pure glut pot of roughly $25k shared between both players. Every living animal
   yields one per day for one action.
-- Tile operations bail out early on `LOCKED` tiles. Hands spawn on all four
-  shed-access tiles regardless of which quadrants you own, so `PICKUP` and
-  `DROP` on a locked one are silent no-ops.
+- Tile operations bail out early on `LOCKED` tiles -- but shed operations are
+  now checked *first*, so `PICKUP`/`DROP` work from all four access tiles. This
+  was the opposite on 1.32.3 and is the single most version-sensitive behaviour
+  in the agent.
 - The unit phase runs before the market phase, so anything a hand picks up this
   turn has already left the shed when the sell orders execute.
 - Over-committing `PLANT` for a crop makes the engine drop **every** `PLANT` for
   that crop that turn.
-- Market purchases can push the shed past its nominal 100 cap; end-of-day drops
-  cannot, and the overflow is discarded.
+- Market purchases now respect `shedCapacity` too; end-of-day drops discard the
+  overflow.
 
 ## The economics that drive the design
 
@@ -91,9 +92,10 @@ Derived from the engine by `lab/economics.py`, not from the docs.
 
 - **Labour is nearly free.** Hire cost is `fib(n)` and resets daily: ten hands
   cost $143 for ~230 extra actions. Actions and market liquidity bind, not land.
-- **The town drains ~3,300 units a season** and typically nobody supplies it, so
-  premium goods trade far above base — strawberry near $300 against a $120 base,
-  milk $320, wool $250. Production is usually the constraint, not liquidity.
+- **The town still under-supplies premium goods**, so strawberry, milk and wool
+  trade well above base. But post-rebalance the totals are lower and vary hugely
+  per season (see the demand table above), so read `town.unlocked_shops` rather
+  than assuming a fixed figure.
 - **Glut curves differ enormously.** Wheat and egg are logarithmic and absorb
   effectively unlimited volume (~$19 / ~$38). Strawberry, milk and wool collapse
   to the $1 floor after 40-60 units above equilibrium. Melon is `sq`-shaped: very

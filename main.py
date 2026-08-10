@@ -149,6 +149,15 @@ DEFAULTS = {
     "rival_horizon": 3,
     "sells_first": True,
     "sell_order": "impact",
+    # FERTILIZE is off. The engine says one fertilizer is worth +2 strawberry
+    # (~$500 at real prices), +3 tomato, +2 wheat, +1 carrot and +0 melon, which
+    # looks like an easy 7x over selling it. Measured, it costs ~$2.5k a game:
+    # 0.263/0.319 against 0.631/0.594 with it off, and gating it to premium
+    # crops only recovers little (0.325/0.347). Not the feed logistics -- no
+    # animals escape and feed counts are unchanged. The extra units land in
+    # markets we already dominate, so the marginal price is far below the table
+    # value. Set a finite edge to re-enable and re-measure.
+    "fertilize_min_edge": 1e9,
     "max_sell_slots": 7,
 }
 
@@ -437,6 +446,38 @@ def town_pull(obs, day, params):
     return {item: units * weight for item, units in pull.items()}
 
 
+def fertilize_gain(crop, tile, day):
+    """Extra units one FERTILIZER buys on this tile, replayed off the engine rules.
+
+    FERTILIZE is active for `day`, `day+1` and `day+2`. Inside a one-time crop's
+    bonus window a watered day then adds 2 instead of 1; an ongoing crop doubles
+    each scheduled production it covers, but only on days the plant is also
+    watered. Measured against the engine: strawberry +2 units, tomato +3, wheat
+    +2, carrot +1, and melon **zero** -- melon reaches its six-unit cap on
+    watering alone, so fertilizing it is discarded outright.
+    """
+    cd = CROPS[crop]
+    if tile.get("fertilized_until_day", -1) >= day:
+        return 0
+    planted_day = tile.get("planted_day", day)
+    held = tile.get("yield_units", 0)
+    if cd["ongoing"]:
+        first = planted_day + cd["first_yield_day"]
+        step = max(1, cd["interval"])
+        return sum(
+            1 for k in range(cd["max_yield"])
+            if day <= first + k * step <= day + 2
+        )
+    age = day - planted_day
+    start = (cd["max_yield_day"] + 1) // 2
+    window = max(0, cd["max_yield_day"] - max(age, start) + 1)
+    if window <= 0:
+        return 0
+    plain = min(cd["max_yield"], held + window)
+    boosted = min(cd["max_yield"], held + window + min(3, window))
+    return max(0, boosted - plain)
+
+
 def crop_profit(crop, market_inventory, planted, day, pull=None):
     """Dollars a tile returns over one planting, at the price we expect to get."""
     cd = CROPS[crop]
@@ -698,6 +739,23 @@ def build_jobs(obs, farm, private, params, depots, day, hours_left, endgame, inf
         must_water = tile.get("consecutive_unwatered", 0) >= 1
         start, end = water_window(crop)
         in_window = (not cd["ongoing"]) and start <= age <= end and held < cd["max_yield"]
+        # Fertilizer is worth what it grows, against what it would fetch sold.
+        # On strawberry that is roughly seven times better than selling it.
+        if shed.get("FERTILIZER", 0) > 0 or carried.get("FERTILIZER", 0) > 0:
+            gained = fertilize_gain(crop, tile, day)
+            if gained > 0:
+                worth = gained * unit_price - marginal_price("FERTILIZER")
+                if worth > params["fertilize_min_edge"] * marginal_price("FERTILIZER"):
+                    add(pos, ["FERTILIZE"], worth, "FERTILIZE", need="FERTILIZER")
+
+        # An ongoing crop only banks the fertilizer bonus on a day it is also
+        # watered, so a fertilized plant must be watered on its production days.
+        if cd["ongoing"] and tile.get("fertilized_until_day", -1) >= day:
+            first = tile.get("planted_day", day) + cd["first_yield_day"]
+            step = max(1, cd["interval"])
+            if any(first + k * step == day for k in range(cd["max_yield"])):
+                in_window = True
+
         if not (must_water or in_window):
             continue
         value = unit_price if in_window else 0.0

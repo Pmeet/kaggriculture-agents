@@ -1,6 +1,6 @@
 # Kaggriculture Agent Handoff
 
-Last updated: 2026-08-11 (Asia/Calcutta)
+Last updated: 2026-08-11 evening (Asia/Calcutta)
 
 Durable handoff for any agent continuing this work. Read with `README.md` and
 `ROADMAP.md`.
@@ -11,6 +11,8 @@ Durable handoff for any agent continuing this work. Read with `README.md` and
   ask me for submissions if you decide it's worth it"). Judgement still applies:
   five slots a day, only the latest two stay active, so submit when local
   evidence says a candidate beats the live one.
+- **Currently suspended by the user**, 2026-08-11: "Don't submit because I have
+  still more insights to give you." Hold submissions until they lift this.
 - Never print, commit, or expose the Kaggle access token. It lives at
   `~/.kaggle/access_token` (mode 600) in WSL and is scoped per command via
   `KAGGLE_API_TOKEN="$(cat ~/.kaggle/access_token)"`.
@@ -24,18 +26,53 @@ Durable handoff for any agent continuing this work. Read with `README.md` and
 
 ## Where things stand
 
-`main.py` is a livestock-led economy. Against the built-in `starter` it banks
-about $100k to `starter`'s $3.5k; the pre-existing carrot-loop baseline tied
-`starter` at $3,498.
+`main.py` is a livestock-led economy with a crop economy grown against
+forecast town demand. Against the pool it banks $79k-$102k; the gauntlet sits
+at MEAN 0.997 / WORST 0.979.
 
-| Opponent | Record (80 paired games) | Bank |
-| --- | --- | --- |
-| `starter` | 80-0 | $99,566 vs $3,495 |
-| `random` | 80-0 | $99,706 vs $12 |
-| `agents/v1.py` (crop-only) | 80-0 | $81,386 vs $48,661 |
-| `agents/baseline_a.py` (first submission) | 71-9 | $76,967 vs $51,454 |
+**The local pool is saturated and no longer measures anything.** Every opponent
+in it is a descendant of our own ideas, and we score 1.000 against nearly all of
+them. Steer on head-to-head paired bank margin against the last frozen snapshot
+(`agents/baseline_i.py`, via `lab/ab.py`), and on the ladder.
 
-Two submissions are live. Ratings converge over hours, so read them late.
+### The ladder is the only honest signal, and it says we are mid-pack
+
+Read on 2026-08-11 from the live API. **Rank 1929 of 3809; rating 717.7 against
+a median of 726.9 and a leader at 3192.8.** Matchmaking pairs us with agents
+rated 437-924, and across the 52 completed games of our two live submissions we
+are **28-24 (0.54)**. Our banks in those games run $24k-$121k -- a left tail that
+never appears locally, where the same agent banks a tight $76-93k.
+
+So: local score ~1.0, ladder score ~0.54. Trust the ladder.
+
+### What the 3,200-rated agents actually do
+
+From replay 91537598 (THUNDER THUNDER, rank 1, vs HealthStone; both ~3,200),
+laid against our own game in the same format:
+
+| | THUNDER | HealthStone | us (2026-08-11) |
+| --- | --- | --- | --- |
+| final bank | 137,003 | 128,119 | 63,750 |
+| strawberry sold | 272 | 263 | 52 |
+| wheat sold | 433 | 431 | 27 |
+| milk sold | 250 | 233 | 231 |
+| fertilizer sold | 257 | 232 | 220 |
+| melon sold | 108 | 104 | 102 |
+| WATER actions | 998 | 875 | 294 |
+| idle (PASS) unit-turns | 1,156 | 644 | 3,058 |
+| animals | 9 cow, 4 sheep | 9 cow, 4 sheep | 11 cow, 1 sheep |
+
+Our livestock, fertilizer and melon lines match theirs almost exactly. **The
+entire gap is the crop economy**, and we had the land and the labour idle to
+grow it. The demand-forecast commit closed part of this (strawberry 52 -> 160,
+watering 294 -> 583, idle 3,058 -> 1,359); wheat is still untouched at 28.
+
+Their bank curve is worth memorising: $1-$500 through day 8, $2k day 10, $6.6k
+day 12, $19.9k day 16, $44.7k day 20, $82k day 24, $110k day 28. **They are as
+broke as we are through the first third.** An idle opening is not the mistake it
+looks like.
+
+Two submissions are live (v13 689.5, v14 717.7). Ratings converge over hours.
 
 ## The engine was rebalanced -- pin 1.32.6
 
@@ -107,6 +144,24 @@ Derived from the engine by `lab/economics.py`, not from the docs.
 - **Melon is load-bearing.** Removing it collapses the gauntlet score from 0.898
   to 0.062. Do not "simplify" it away.
 
+## The demand forecast
+
+`town_pull` used to count only shops that had already unlocked. On day 0 -- the
+turn that decides what fills the farm -- none have, so every crop was priced
+against three days of town-centre drain and wheat looked worthless.
+
+The shops a season contains are unknowable, but their distribution is not: one
+unlocks every 3 days up to 8 instances, each a uniform draw **with replacement**
+from the 8 shop types. So a product's expected demand from a future unlock is
+its share of the pool — wheat is in 5 of 8 shops, strawberry 4, melon 0.
+Projecting that reproduces the empirically sampled season demand to within 6%
+with no fitted constant, and `tests/test_agent.py` pins both the schedule and
+the prior against the engine.
+
+`future_pull_weight` belongs at exactly 1.0 — "believe the pool average". It is
+sharply non-monotonic: 1.5 costs $6.3k, because over-crediting future wheat
+demand hands it the whole farm and melon monoculture beats that.
+
 ## Agent architecture (`main.py`)
 
 Every job is valued **in dollars** and assigned by `value - distance *
@@ -121,15 +176,55 @@ tile in front of them and makes assignments stable across turns.
 - `plan_sales` — sells down to each product's own collapse point, capped by
   price impact, relaxing to a full liquidation as the season closes.
 
+## Reading the ladder (all read-only, all unauthenticated except the CLI)
+
+Rating and rank:
+
+```bash
+KAGGLE_API_TOKEN="$(cat ~/.kaggle/access_token)" ~/.venvs/kaggri/bin/kaggle \
+    competitions submissions kaggriculture
+KAGGLE_API_TOKEN="$(cat ~/.kaggle/access_token)" ~/.venvs/kaggri/bin/kaggle \
+    competitions leaderboard kaggriculture --download -p .
+```
+
+Our episodes, with each opponent's rating and both banks -- this is what the
+0.54 above came from. The endpoint takes **`submissionId`** or **`ids`**; a
+`teamId` filter is rejected, and `ids` must all belong to one competition:
+
+```bash
+curl -sS -X POST \
+  https://www.kaggle.com/api/i/competitions.EpisodeService/ListEpisodes \
+  -H "Content-Type: application/json" --data-binary '{"submissionId":55428714}'
+```
+
+Replays of the **top** agents come from the official daily datasets, not from
+the API -- `GetEpisodeReplay` is gone. `kaggle/kaggriculture-episodes-index`
+lists one dataset per day, each ~21 GB of episodes named `<episodeId>.json`, and
+these are top-tier games (median avg rating ~3,080). List the filenames, run the
+ids through `ListEpisodes` to find the strongest pairing, then pull that one
+file:
+
+```bash
+kaggle datasets files kaggle/kaggriculture-episodes-2026-08-10 --page-size 400
+kaggle datasets download kaggle/kaggriculture-episodes-2026-08-10 -f 91537598.json -p replays/
+~/.venvs/kaggri/bin/python lab/replay.py replays/91537598.json
+```
+
+Staff cap `ListEpisodes` at 3,600 views per rolling 24 hours.
+
 ## Research loop (`lab/`, never submitted)
 
 - `arena.py` — paired matches from both seats. `fast_play` skips the framework's
   per-step deep copy (over half a game's runtime) and is pinned to `env.run` by
   `tests/test_integration.py`.
+- `ab.py` — the workhorse now the pool is saturated. Plays named parameter
+  variants against a frozen snapshot over search seeds *and* disjoint held-out
+  seeds, and reports paired bank margin for each. Read the held-out column.
 - `pool.py` — the opponent gauntlet, including archetypes reconstructed from
-  real ladder replays.
+  real ladder replays. Use it as a regression check, not as a steering signal.
 - `optimize.py` — coordinate descent on paired bank margin, or on the pool.
 - `economics.py`, `inspect_game.py`, `probe.py`, `replay.py` — analysis.
+  `replay.py` reads both our episodes and downloaded ladder replays.
 
 **Measurement discipline that has repeatedly mattered:**
 
@@ -163,18 +258,44 @@ strategy tuning. Look here first.
   bound; `move_factor` did.
 - **Locked shed tiles** swallowed PICKUP/DROP on the old engine and no longer do.
 
+## Settled, so nobody re-litigates them
+
+- **The melon opening is correct.** It looks wrong in a replay -- 23 melon
+  tiles, $148 in the bank on day 9, then the price crashing from $250 to $100 as
+  we sell -- and two independent instruments say to leave it alone. Capping
+  melon tiles costs $17-30k a game (26 tiles: 0.562 held out; 16: 0.188; 10:
+  0.100; 6: 0.006). Reserving tiles for a two-day cash crop costs $7.4k at three
+  tiles and $15.6k at six. And the marginal arithmetic agrees: a melon tile is
+  worth 14.8 falling to 2.9 as its own supply lands, crossing carrot's 3.7 only
+  at the 22nd tile. The top two ladder agents are also broke until day 10.
+- **Melon is not worth pacing.** No shop demands it, so the town drains exactly
+  30 units a season, 1 a day. Holding melon back cannot let the price recover.
+- **Crops are not underpriced for labour.** `job_weight` 1.4/0.8/0.4 and
+  `plant_commitment_cost` 20 all measure neutral-to-negative even with half our
+  unit-turns idle, and `seed_buffer` 25 costs $6.3k. The crop shortfall was a
+  *demand forecasting* failure, not a labour-pricing one.
+
 ## Open leads
 
-- **Herd size.** Across six ladder games we lost every game where the opponent
-  accumulated more animal-days (452, 338, 330) and won every game where they
-  accumulated fewer (0, 0, 112). Locally, forcing a larger herd loses, because
-  milk and wool crash and our own extra supply cannibalises our existing sales.
-  Unresolved: whether animal-days are the cause or a symptom of a stronger early
-  economy. This is the most valuable open question.
+- **Wheat.** The top agents sell 433 a game; we sell 28, and the market still
+  ends 1,158 units below equilibrium with the price high. The demand forecast
+  moved strawberry but not wheat. This is the largest single line item left.
+- **The left tail.** Ladder banks run $24k-$121k where local banks run $76-93k.
+  Something in real games goes wrong that never goes wrong locally. Pull the
+  replays of our own worst losses (episodes 91941649, 91937819, 91955747) and
+  find out what.
+- **The pool needs a real opponent.** Everything in it is our own lineage, and
+  we beat all of it. Reconstruct an archetype from a 3,200-rated replay --
+  strawberry+wheat at scale over 13 animals -- or the next tuning round fits
+  ourselves again.
+- **Herd size.** Ladder games we lost had the opponent accumulating more
+  animal-days (452, 338, 330); games we won, fewer (0, 0, 112). Locally a bigger
+  herd loses. Note the top agents run **13 animals**, close to ours, so the
+  ladder correlation is probably a symptom of a stronger economy, not a cause.
 - Placing every owned animal is **not** automatically right — stranded stock was
   accidentally protecting us from crashing wool. Fix the buying decision rather
   than forcing placement.
-- Melon still sells into its own crash; sale pacing across days is unexplored.
+- We build ~12 pastures we never fill; the top agents finish with 0-1 empty.
 - Weeds are largely ignored, as they are by strong ladder opponents.
 
 ## Verification before any submission

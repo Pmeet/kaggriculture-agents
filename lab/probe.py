@@ -31,7 +31,7 @@ def probe(module_name, seed=1, watch_days=(1, 5, 12), seat=0, kinds=None):
             farm = obs["farms"][seat]
             info = mod.census(farm)
             hours_left = mod.TURNS_PER_DAY - hour - 1
-            jobs, crop_choice, crop_score = mod.build_jobs(
+            jobs, crop_choice, crop_score, seed_want = mod.build_jobs(
                 obs, farm, obs["private"], params, len(farm["tiles"]),
                 day, hours_left, False, info, farm["money"],
             )
@@ -48,7 +48,7 @@ def probe(module_name, seed=1, watch_days=(1, 5, 12), seat=0, kinds=None):
             for j in jobs:
                 counts[j["kind"]] = counts.get(j["kind"], 0) + 1
             print(f"    jobs={counts}  crop={crop_choice}@{crop_score:.0f}/tile-day "
-                  f"action_cost={action_cost:.0f}")
+                  f"plan={seed_want}  action_cost={action_cost:.0f}")
             selected = [j for j in jobs if kinds is None or j["kind"] in kinds]
             selected.sort(key=lambda j: -j["value"])
             for j in selected[:8]:

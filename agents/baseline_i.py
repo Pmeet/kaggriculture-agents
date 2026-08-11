@@ -1,4 +1,6 @@
-"""Kaggriculture submission agent: livestock-led economy with economic routing.
+"""Frozen benchmark snapshot (do not edit).
+
+Kaggriculture submission agent: livestock-led economy with economic routing.
 
 What earlier versions taught us, measured on real episodes:
 
@@ -132,15 +134,6 @@ DEFAULTS = {
     "action_cost_cap": 70.0,
     "action_cost_scale": 0.5,
     "melon_max_tiles": 26,
-    # "marginal" prices each empty tile against the tiles committed before it,
-    # so a crop stops winning tiles once its own supply has crushed the price.
-    # "single" is the old behaviour: one crop wins and takes every tile.
-    "tile_alloc": "marginal",
-    # Tiles held back for a crop that yields inside `early_cash_days`, while the
-    # farm is younger than `early_cash_last_day`. Off until measured.
-    "early_cash_tiles": 0,
-    "early_cash_days": 3,
-    "early_cash_last_day": 6,
     "land_weight": 0.5,
     "job_weight": 2.2,
     "dig_fraction": 0.25,
@@ -787,61 +780,48 @@ def build_jobs(obs, farm, private, params, depots, day, hours_left, endgame, inf
             value += pending * unit_price * 0.8
         add(pos, ["WATER"], value, "WATER")
 
+    # ---- Weeds squat on tiles we would otherwise be earning from.
+    crop_choice, crop_score = pick_crop(obs, params, info, day, money, pull)
+    tile_worth = max(
+        crop_profit(crop_choice, market_inventory, info["planted"], day, pull)
+        if crop_choice else 0.0,
+        0.0,
+    )
+    if not endgame:
+        for pos in info["weeds"]:
+            add(pos, ["DIG"], tile_worth * params["dig_fraction"] + 25.0, "DIG")
+
     # ---- Fill empty tiles: livestock pens near the shed, crops further out.
-    wanted, by_distance, n_struct = [], [], 0
     if not endgame and info["empty"]:
         wanted, _purchases = livestock_plan(
             params, info, shed, day, money, market_inventory, carried, pull
         )
         by_distance = sorted(info["empty"], key=lambda p: distance(p, nearest_shed(p, depots)))
         n_struct = min(len(wanted), len(by_distance))
+        for i, pos in enumerate(by_distance):
+            if i < n_struct:
+                kind = wanted[i]
+                best = max(
+                    (animal_profit(n, day, market_inventory,
+                                   info["animal_counts"], params, pull)
+                     for n, sp in ANIMALS.items() if sp["structure"] == kind),
+                    default=0.0,
+                )
+                add(pos, ["BUILD_COOP" if kind == "COOP" else "BUILD_PASTURE"],
+                    max(60.0, best * params["build_fraction"]), "BUILD")
+            elif crop_choice and seeds.get(crop_choice, 0) > 0:
+                # A PLANT commits the tile to a whole cycle of watering and
+                # harvesting, so its value must be net of the actions that cycle
+                # will consume. Pricing it at gross cycle profit let one crop
+                # action out-bid a cow's feeding, and the herd starved while the
+                # farm planted melons.
+                units, occupancy = realizable(crop_choice, day)
+                follow_up = max(0, crop_jobs(crop_choice, occupancy) - 1)
+                add(pos, ["PLANT", crop_choice],
+                    max(0.0, tile_worth - follow_up * params["plant_commitment_cost"]),
+                    "PLANT", crop=crop_choice)
 
-    # One entry per tile that could actually take a crop, each priced against
-    # the ones committed before it. The first entry is also what a weeded tile
-    # is worth, since digging it out is what makes that planting possible.
-    plan = plan_planting(obs, params, info, day, money, pull,
-                         max(1, len(by_distance) - n_struct))
-    crop_choice = plan[0][0] if plan else None
-    tile_worth = plan[0][1] if plan else 0.0
-    crop_score = plan[0][2] if plan else 0.0
-
-    # ---- Weeds squat on tiles we would otherwise be earning from.
-    if not endgame:
-        for pos in info["weeds"]:
-            add(pos, ["DIG"], tile_worth * params["dig_fraction"] + 25.0, "DIG")
-
-    for i, pos in enumerate(by_distance):
-        if i < n_struct:
-            kind = wanted[i]
-            best = max(
-                (animal_profit(n, day, market_inventory,
-                               info["animal_counts"], params, pull)
-                 for n, sp in ANIMALS.items() if sp["structure"] == kind),
-                default=0.0,
-            )
-            add(pos, ["BUILD_COOP" if kind == "COOP" else "BUILD_PASTURE"],
-                max(60.0, best * params["build_fraction"]), "BUILD")
-            continue
-        if i - n_struct >= len(plan):
-            break
-        crop, worth, _score = plan[i - n_struct]
-        if crop and seeds.get(crop, 0) > 0:
-            # A PLANT commits the tile to a whole cycle of watering and
-            # harvesting, so its value must be net of the actions that cycle
-            # will consume. Pricing it at gross cycle profit let one crop
-            # action out-bid a cow's feeding, and the herd starved while the
-            # farm planted melons.
-            units, occupancy = realizable(crop, day)
-            follow_up = max(0, crop_jobs(crop, occupancy) - 1)
-            add(pos, ["PLANT", crop],
-                max(0.0, worth - follow_up * params["plant_commitment_cost"]),
-                "PLANT", crop=crop)
-
-    seed_want = {}
-    for crop, _worth, _score in plan[:max(0, len(by_distance) - n_struct)]:
-        seed_want[crop] = seed_want.get(crop, 0) + 1
-
-    return jobs, crop_choice, crop_score, seed_want
+    return jobs, crop_choice, crop_score
 
 
 def pick_crop(obs, params, info, day, money, pull=None):
@@ -855,70 +835,6 @@ def pick_crop(obs, params, info, day, money, pull=None):
         if score > best_score:
             best, best_score = crop, score
     return best, best_score
-
-
-def plan_planting(obs, params, info, day, money, pull=None, n_tiles=1):
-    """Choose a crop for each empty tile, each priced against the ones before it.
-
-    ``pick_crop`` scores crops once and every empty tile gets the winner, so the
-    whole farm goes into whichever crop wins the first comparison: 26 melon
-    tiles planted on days 1-2, all harvesting together on day 12, into a market
-    whose entire season demand for melon is 30 units. Every one of those tiles
-    was priced as though it were the only one being planted, so the 26th tile
-    was booked at the marginal value of the first.
-
-    Committing them one at a time, each charged against the price the *next*
-    one will get, prices the 26th tile at what it will really fetch. A mix then
-    falls out of the arithmetic -- melon keeps winning tiles until its marginal
-    value drops below wheat's -- rather than being imposed by a cap, and the
-    farm has something to sell during the ten days melon spends in the ground.
-
-    Returns ``(crop, tile_profit, score)`` per tile, in the order tiles should
-    be filled.
-    """
-    market_inventory = obs["market"]["inventory"]
-    n_tiles = max(0, int(n_tiles))
-
-    if params.get("tile_alloc", "marginal") != "marginal":
-        crop, score = pick_crop(obs, params, info, day, money, pull)
-        if crop is None:
-            return []
-        worth = max(0.0, crop_profit(crop, market_inventory, info["planted"], day, pull))
-        return [(crop, worth, score)] * n_tiles
-
-    planted = dict(info["planted"])
-
-    # Melon holds a tile for ten days and pays nothing until day 12, so a farm
-    # that plants only melon earns nothing at all through the first third of the
-    # season -- $148 in the bank on day 9, and no cash for the livestock that
-    # compounds for the remaining twenty. Per-tile-day melon is still worth four
-    # times anything else even after its own supply has crushed the price, so it
-    # wins every tile on merit and no amount of marginal pricing changes that.
-    # Reserving a few tiles for a crop that yields in two days is the only way to
-    # price that option value, since it is a property of the schedule rather than
-    # of any one tile. Tiles already carrying a fast crop count toward it.
-    fast = [c for c in CROPS if CROPS[c]["first_yield_day"] <= params["early_cash_days"]]
-    reserve = 0
-    if day <= params["early_cash_last_day"] and fast:
-        held = sum(planted.get(c, 0) for c in fast)
-        reserve = max(0, params["early_cash_tiles"] - held)
-
-    plan = []
-    for _ in range(n_tiles):
-        candidates = fast if len(plan) < reserve else CROPS
-        best, best_score = None, 0.0
-        for crop in candidates:
-            if crop == "MELON" and planted.get("MELON", 0) >= params["melon_max_tiles"]:
-                continue
-            score = crop_value(crop, market_inventory, planted, day, money, params, pull)
-            if score > best_score:
-                best, best_score = crop, score
-        if best is None:
-            break
-        worth = max(0.0, crop_profit(best, market_inventory, planted, day, pull))
-        plan.append((best, worth, best_score))
-        planted[best] = planted.get(best, 0) + 1
-    return plan
 
 
 # --------------------------------------------------------------------------
@@ -1191,7 +1107,7 @@ def plan_hiring(farm, params, hour, hours_left, workload, money, slots, endgame)
 
 
 def plan_market(obs, farm, private, params, shed, day, hour, step, info,
-                endgame, seed_want, carried, pull, incoming):
+                endgame, crop_choice, carried, pull, incoming):
     orders = []
     money = farm["money"]
     market_inventory = obs["market"]["inventory"]
@@ -1241,24 +1157,14 @@ def plan_market(obs, farm, private, params, shed, day, hour, step, info,
             slots -= 1
 
     # ---- Seed the tiles we already own before buying any more of anything.
-    # The tile plan is a mix, so buy for whichever crop it is shortest of and
-    # let successive turns fill the rest in. One order a turn keeps the market
-    # slots that sells and livestock need, and buying the largest shortfall
-    # first means the crop actually blocking a PLANT gets unblocked first.
-    if slots > 0 and not endgame and seed_want:
-        deficits = []
-        for rank, (crop, tiles) in enumerate(seed_want.items()):
-            short = min(tiles, params["seed_buffer"]) - private["seeds"].get(crop, 0)
-            if short > 0:
-                deficits.append((short, -rank, crop))
-        if deficits:
-            short, _rank, crop = max(deficits)
-            unit_cost = CROPS[crop]["seed"]
-            want = min(short, int(max(0.0, budget * params["seed_budget_frac"]) // unit_cost))
-            if want > 0:
-                orders.append(["BUY_SEED", crop, want])
-                budget -= want * unit_cost
-                slots -= 1
+    if slots > 0 and not endgame and crop_choice:
+        unit_cost = CROPS[crop_choice]["seed"]
+        want = min(len(info["empty"]), params["seed_buffer"]) - private["seeds"].get(crop_choice, 0)
+        want = min(want, int(max(0.0, budget * params["seed_budget_frac"]) // unit_cost))
+        if want > 0:
+            orders.append(["BUY_SEED", crop_choice, want])
+            budget -= want * unit_cost
+            slots -= 1
 
     # ---- Land. Twenty-five tiles for $1k/$2k/$4k pays back within days, but
     # only once the tiles we already hold are full.
@@ -1418,7 +1324,7 @@ def _play(obs, params):
     pull = town_pull(obs, day, params)
     incoming = rival_incoming(obs, player, day, params["rival_horizon"])
 
-    jobs, _crop_choice, _crop_score, seed_want = build_jobs(
+    jobs, crop_choice, _crop_score = build_jobs(
         obs, farm, private, params, depots, day, hours_left, endgame, info,
         farm["money"], carried, pull,
     )
@@ -1460,7 +1366,7 @@ def _play(obs, params):
 
     market = plan_market(
         obs, farm, private, params, shed, day, hour, step, info, endgame,
-        seed_want, carried, pull, incoming,
+        crop_choice, carried, pull, incoming,
     )
     return {
         "farmer": unit_actions[0] if unit_actions else ["PASS"],

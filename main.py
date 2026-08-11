@@ -148,6 +148,12 @@ DEFAULTS = {
     "fertilizer_capture": 0.9,
     "plant_commitment_cost": 42.0,
     "town_pull_weight": 0.5,
+    # Weight on demand from shops that have not unlocked yet. 1.0 is "believe
+    # the pool average", and it is also what measures best: +$13.4k paired
+    # margin on held-out seeds (0.896) against the agent without it. Both
+    # halves matter -- 1.5 collapses to -$6.3k, because over-crediting future
+    # wheat demand hands it the whole farm and melon monoculture beats that.
+    "future_pull_weight": 1.0,
     # Doing a job on the tile a unit is passing over measured neutral-to-negative
     # head to head (0.512/0.456 against 0.525/0.537 without), even though it
     # lifted the bank ~20% against `starter`. Labour is not the binding
@@ -373,6 +379,23 @@ SHOP_DEMAND = {
 }
 TOWN_CENTRE_PRODUCTS = tuple(p for p in PRODUCTS if p != "FERTILIZER")
 
+# The town unlocks one shop every `SHOP_UNLOCK_INTERVAL` days until it holds
+# `MAX_SHOP_INSTANCES`, each drawn uniformly *with replacement* from SHOP_DEMAND.
+# So the shops a season will contain are unknown but their distribution is not:
+# the expected number of drains a product earns from one future unlock is just
+# its share of the pool. Wheat sits in five of the eight shops, strawberry four,
+# melon none -- which is why measured season demand runs wheat 523, strawberry
+# 422, melon 30.
+SHOP_UNLOCK_INTERVAL = 3
+MAX_SHOP_INSTANCES = 8
+EXPECTED_SHOP_DEMAND = {}
+for _shop, _products in SHOP_DEMAND.items():
+    _multiplier = 2 if len(_products) == 1 else 1
+    for _item in _products:
+        EXPECTED_SHOP_DEMAND[_item] = (
+            EXPECTED_SHOP_DEMAND.get(_item, 0.0) + _multiplier / len(SHOP_DEMAND)
+        )
+
 
 def rival_incoming(obs, player, day, horizon):
     """Units the opponent's visible farm will deliver to market within `horizon` days.
@@ -454,7 +477,26 @@ def town_pull(obs, day, params):
     for item in TOWN_CENTRE_PRODUCTS:
         pull[item] = pull.get(item, 0) + ticks / 24.0
     weight = params["town_pull_weight"]
-    return {item: units * weight for item, units in pull.items()}
+    pull = {item: units * weight for item, units in pull.items()}
+
+    # Shops that have not unlocked yet are the larger half of the season's
+    # demand, and on day 0 -- when the crop that will fill the farm is chosen --
+    # none of them exist yet. Counting only what has already unlocked therefore
+    # prices every crop against the demand of the first three days: wheat scored
+    # as if the town wanted 29 units when it will drain over 500, and the farm
+    # grew none of it. Each future unlock is credited with the pool average,
+    # decaying naturally as real shops replace the prior.
+    future_weight = params["future_pull_weight"]
+    if future_weight > 0:
+        for index in range(len(shops), MAX_SHOP_INSTANCES):
+            unlock_day = (index + 1) * SHOP_UNLOCK_INTERVAL
+            active_days = LAST_DAY - max(day, unlock_day)
+            if active_days <= 0:
+                continue
+            span = active_days * TURNS_PER_DAY / 4.0
+            for item, expected in EXPECTED_SHOP_DEMAND.items():
+                pull[item] = pull.get(item, 0.0) + expected * span * future_weight
+    return pull
 
 
 def fertilize_gain(crop, tile, day):

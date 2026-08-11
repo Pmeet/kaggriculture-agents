@@ -199,6 +199,51 @@ class MarketModelTest(unittest.TestCase):
         self.assertEqual(engine.ANIMALS, ANIMALS)
         self.assertEqual(engine.PRODUCTS, PRODUCTS)
         self.assertEqual(engine.LAND_PRICES, main.LAND_PRICES)
+        self.assertEqual(
+            {shop: tuple(products) for shop, products in engine.SHOPS.items()},
+            dict(main.SHOP_DEMAND),
+        )
+        self.assertEqual(engine.MAX_SHOP_INSTANCES, main.MAX_SHOP_INSTANCES)
+
+    def test_shop_unlock_schedule_matches_the_engine(self):
+        """The demand prior is only worth anything if the schedule is right."""
+        import json
+        import os
+
+        from kaggle_environments.envs.kaggriculture import kaggriculture as engine
+
+        spec_path = os.path.join(os.path.dirname(engine.__file__), "kaggriculture.json")
+        with open(spec_path) as handle:
+            configuration = json.load(handle)["configuration"]
+        self.assertEqual(
+            main.SHOP_UNLOCK_INTERVAL, configuration["townShopUnlockInterval"]["default"]
+        )
+        # A shop drains one of each product every four turns, which is the /4.0
+        # the projection divides by.
+        self.assertEqual(configuration["townShopSellInterval"]["default"], 4)
+
+    def test_future_demand_prior_matches_a_uniform_draw(self):
+        """Each unlock is a uniform draw, so a product's share is its shop count."""
+        pool = main.SHOP_DEMAND
+        for item, share in main.EXPECTED_SHOP_DEMAND.items():
+            expected = sum(
+                (2 if len(products) == 1 else 1)
+                for products in pool.values() if item in products
+            ) / len(pool)
+            self.assertAlmostEqual(share, expected)
+        self.assertNotIn("MELON", main.EXPECTED_SHOP_DEMAND)
+
+    def test_projected_season_demand_tracks_the_sampled_table(self):
+        """Sampled over 400 seasons: wheat 523, strawberry 422, melon 30."""
+        params = dict(main.DEFAULTS)
+        params["town_pull_weight"] = 1.0
+        params["future_pull_weight"] = 1.0
+        pull = main.town_pull({"town": {"unlocked_shops": []}}, 0, params)
+        self.assertAlmostEqual(pull["WHEAT"], 523, delta=60)
+        self.assertAlmostEqual(pull["STRAWBERRY"], 422, delta=60)
+        self.assertAlmostEqual(pull["MELON"], 30, delta=10)
+        self.assertGreater(pull["WHEAT"], pull["STRAWBERRY"])
+        self.assertGreater(pull["STRAWBERRY"], pull["MILK"])
 
     def test_sell_sizing_stops_at_the_price_floor_it_is_given(self):
         quantity = main.sellable_quantity("MELON", main.MARKET_I0, 500, 150.0)

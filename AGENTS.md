@@ -140,6 +140,28 @@ tile in front of them and makes assignments stable across turns.
 3. Tuning against one frozen mirror converges on beating ourselves. Use the pool.
 4. A parameter tuned around a bug encodes the bug. When livestock accounting was
    fixed, every herd-size setting had to be retuned.
+5. Check whether a cap is actually binding before tuning it. `max_hands` was
+   raised from 14 to 26 with *identical* results, because the workload estimate
+   feeding it was the real limit.
+6. Absolute bank against `starter` is not a competitive signal. Work-in-passing
+   lifted it 20% and measured neutral-to-negative head to head, because the
+   market is uncontested against a trivial opponent.
+
+## Mechanical edges found by measurement, not reasoning
+
+Every large win so far came from a silent loss or an engine detail, never from
+strategy tuning. Look here first.
+
+- **Market orders resolve by index**, each player's order i quoted against the
+  same pre-commit inventory. Selling at index 0 rather than 5 is worth ~11% on a
+  premium sale ($12,817 vs $11,530 on 40 melons). Sells go first, ordered by
+  price impact.
+- **End-of-day drops discard anything past the shed cap**, and produce sitting
+  in unit inventories is invisible to the shed-level guard. Was costing ~$5.5k a
+  game in melon and milk; now $37.
+- **The workload estimate, not `max_hands`, sets the workforce.** The cap never
+  bound; `move_factor` did.
+- **Locked shed tiles** swallowed PICKUP/DROP on the old engine and no longer do.
 
 ## Open leads
 

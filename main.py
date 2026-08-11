@@ -704,6 +704,13 @@ def build_jobs(obs, farm, private, params, depots, day, hours_left, endgame, inf
                 value = spec["cost"] + unit_price * max(0, days_left) * 0.5
             else:
                 value = unit_price * 0.9
+            # A banked CARE bonus is paid out only if the animal is fed on the
+            # production day, and is wiped otherwise -- days of caring lost to
+            # one missed meal. On such a day the feed is worth the whole bank.
+            since = (day + 1) - tile.get("placed_day", day) - spec["first_yield_day"]
+            interval = max(1, spec["interval"])
+            if since >= 0 and since % interval == 0:
+                value += tile.get("pending_care_bonus", 0) * unit_price
             add(pos, ["FEED"], value, "FEED", need="WHEAT")
 
         if not tile.get("cared_today") and days_left >= 1:

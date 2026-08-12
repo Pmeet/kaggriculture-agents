@@ -416,6 +416,34 @@ Kept as `capacity_slack` / `job_weight_scarcity`, both off, because the
 saturation number itself is the useful part: it is the honest way to see whether
 a change bought work the farm can actually do.
 
+## Fertilizer is free and still not worth applying
+
+The input costs nothing -- every animal drops one a day and we collect ~193 a
+game -- so this looks like an easy win, and the engine's own table backs it: one
+fertilizer is +2 strawberry, ~$570 at real prices, against a ~$50 sale.
+
+It measures negative anyway, and the reason is actions, not dollars. Fertilizing
+displaces watering *and then demands more of it*, because an ongoing crop only
+banks the bonus on a day it is also watered. One game, fertiliser always on
+against off:
+
+| | off | always |
+| --- | --- | --- |
+| FERTILIZE actions | 0 | 58 |
+| WATER actions | 534 | **412** |
+| strawberry sold | 136 | **116** |
+| bank | $68,526 | $53,568 |
+
+58 fertilizes cost 122 waterings and produced *fewer* strawberries. The promised
+bonus is never collected because the watering that would collect it is the thing
+that got crowded out.
+
+**`fertilize_min_edge` is a multiplier on the fertilizer price, not a dollar
+amount.** An earlier sweep of 0/60/200 was really testing always/never/never and
+concluded nothing; swept properly the result is monotone -- always -$10,819,
+edge 1 -$5,041, edge 4 -$2,739, edge 16 -$749, off -$697 -- so less is always
+better. Check what a threshold is denominated in before sweeping it.
+
 ## Settled, so nobody re-litigates them
 
 - **The melon opening is correct.** It looks wrong in a replay -- 23 melon

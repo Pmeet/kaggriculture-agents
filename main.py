@@ -218,14 +218,19 @@ DEFAULTS = {
     "rival_horizon": 3,
     "sells_first": True,
     "sell_order": "impact",
-    # FERTILIZE is off. The engine says one fertilizer is worth +2 strawberry
-    # (~$500 at real prices), +3 tomato, +2 wheat, +1 carrot and +0 melon, which
-    # looks like an easy 7x over selling it. Measured, it costs ~$2.5k a game:
-    # 0.263/0.319 against 0.631/0.594 with it off, and gating it to premium
-    # crops only recovers little (0.325/0.347). Not the feed logistics -- no
-    # animals escape and feed counts are unchanged. The extra units land in
-    # markets we already dominate, so the marginal price is far below the table
-    # value. Set a finite edge to re-enable and re-measure.
+    # FERTILIZE is off, and `fertilize_min_edge` is a multiplier on the
+    # fertilizer price, not a dollar amount -- an earlier sweep of 0/60/200 was
+    # really testing "always/never/never" and learned nothing. Swept properly it
+    # is monotone: always -$10,819, edge 1 -$5,041, edge 4 -$2,739, edge 16
+    # -$749, off -$697. Less is always better.
+    #
+    # The cost is not the fertilizer, which is free -- every animal drops one a
+    # day and we collect ~193 a game. It is that applying it displaces watering
+    # and then *demands more of it*: an ongoing crop only banks the bonus on a
+    # day it is also watered. Measured over one game, 58 FERTILIZE actions cost
+    # 122 waterings (534 -> 412) and strawberry sold went **down**, 136 -> 116.
+    # The bonus the table promises is never collected, and the watering it
+    # crowded out was already earning.
     "fertilize_min_edge": 1e9,
     "max_sell_slots": 7,
     "shed_margin": 45,

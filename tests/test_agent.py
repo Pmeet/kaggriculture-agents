@@ -215,6 +215,70 @@ class EndgameTest(unittest.TestCase):
         self.assertFalse(kinds & {"BUY_SEED", "BUY_ANIMAL", "BUY_LAND", "HIRE"})
 
 
+class CullingTest(unittest.TestCase):
+    """Starving an animal is the only way to empty a pen: DIG refuses a tile
+    with an animal on it and livestock cannot be sold, but two missed feeds
+    delete the animal and leave the structure standing."""
+
+    def pasture_of_sheep(self, count=4):
+        board = locked_board()
+        for i in range(count):
+            board[1][i] = {
+                "kind": "PASTURE", "animal": "SHEEP", "placed_day": 0,
+                "yield_units": 0, "fed_today": False, "consecutive_unfed": 0,
+                "cared_today": False, "fertilizer_available": True,
+                "pending_care_bonus": 0,
+            }
+        return board
+
+    def dead_wool_market(self):
+        inventory = {item: main.MARKET_I0 for item in PRODUCTS}
+        inventory["WOOL"] = main.MARKET_I0 + 600   # glutted to the $1 floor
+        inventory["MILK"] = main.MARKET_I0 - 300   # drained, trading high
+        return inventory
+
+    def test_recycles_a_pen_whose_product_has_no_market(self):
+        obs = observation(tiles=self.pasture_of_sheep(), day=8, money=6000,
+                          market_inventory=self.dead_wool_market())
+        obs["town"]["unlocked_shops"] = ["PIZZA_SHOP", "ICE_CREAM_SHOP"]
+        params = dict(main.DEFAULTS)
+        params["cull_min_edge"] = 800.0
+        info = main.census(obs["farms"][0])
+        culls = main.cull_candidates(info, params, 8, obs["market"]["inventory"],
+                                     main.town_pull(obs, 8, params))
+        self.assertTrue(culls, "wool at $1 against milk at $311 should free pens")
+        self.assertLessEqual(len(culls), params["cull_max_per_turn"])
+
+    def test_a_culled_animal_is_not_fed(self):
+        obs = observation(tiles=self.pasture_of_sheep(), day=8, money=6000,
+                          market_inventory=self.dead_wool_market(),
+                          shed={"WHEAT": 40})
+        obs["town"]["unlocked_shops"] = ["PIZZA_SHOP", "ICE_CREAM_SHOP"]
+        params = dict(main.DEFAULTS)
+        params["cull_min_edge"] = 800.0
+        action = main._play(obs, params)
+        units = [action["farmer"], *action["hands"]]
+        self.assertEqual(0, sum(1 for u in units if u and u[0] == "FEED"))
+
+    def test_never_culls_when_a_replacement_cannot_mature(self):
+        """A pen freed on day 28 has nothing that can reach a first yield."""
+        obs = observation(tiles=self.pasture_of_sheep(), day=28, money=6000,
+                          market_inventory=self.dead_wool_market())
+        params = dict(main.DEFAULTS)
+        params["cull_min_edge"] = 800.0
+        params["cull_last_day"] = 29
+        info = main.census(obs["farms"][0])
+        self.assertEqual(set(), main.cull_candidates(
+            info, params, 28, obs["market"]["inventory"]))
+
+    def test_off_by_default(self):
+        obs = observation(tiles=self.pasture_of_sheep(), day=8, money=6000,
+                          market_inventory=self.dead_wool_market())
+        info = main.census(obs["farms"][0])
+        self.assertEqual(set(), main.cull_candidates(
+            info, dict(main.DEFAULTS), 8, obs["market"]["inventory"]))
+
+
 class MarketModelTest(unittest.TestCase):
     def test_price_model_matches_the_engine(self):
         from kaggle_environments.envs.kaggriculture import kaggriculture as engine

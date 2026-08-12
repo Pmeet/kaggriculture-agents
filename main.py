@@ -182,6 +182,11 @@ DEFAULTS = {
     # Earliest day melon may be planted. The opening is worth more spent on
     # what the shops actually drain.
     "melon_first_day": 12,
+    # Selective starvation. Two missed feeds delete an animal and leave its pen
+    # standing, which is the only way to undo a placement. Off until measured.
+    "cull_min_edge": 1e9,
+    "cull_last_day": 18,
+    "cull_max_per_turn": 3,
     # Charging the opponent's visible production against our expected price.
     # Measures neutral locally (0.500, +$657 held out) and cannot measure better
     # there: the local opponent is a copy of us, so "what they planted" is what
@@ -781,6 +786,47 @@ def animal_order(params, info, market_inventory, day, owned=None, pull=None,
     return [(name, target) for _score, name, target in ranked]
 
 
+def cull_candidates(info, params, day, market_inventory, pull=None, coverage=None):
+    """Animals worth more to us dead than alive.
+
+    Two consecutive missed feeds and the engine deletes the animal and leaves
+    the pasture or coop standing, so a pen is recyclable at the price of two
+    days of not feeding. That is the only way to undo a placement: DIG refuses
+    a tile with an animal on it, and livestock cannot be sold.
+
+    It is worth doing exactly when the sitting animal's product has died -- a
+    season that drew no yarn store leaves wool at the $1 floor while milk trades
+    near $290 -- and only while a replacement still has time to reach its first
+    yield. The animal already in the pen cost nothing more to keep, so it is
+    priced as if it were free, which biases the comparison against culling.
+    """
+    if params["cull_min_edge"] >= 1e8 or day > params["cull_last_day"]:
+        return set()
+    culls = set()
+    for pos, tile in info["animals"]:
+        name = tile["animal"]
+        spec = ANIMALS[name]
+        # Already paid for, and already past some of its ramp-up.
+        keep = animal_profit(name, day, market_inventory, info["animal_counts"],
+                             params, pull) + spec["cost"]
+        best_gain, best_name = 0.0, None
+        for other, other_spec in ANIMALS.items():
+            if other_spec["structure"] != spec["structure"] or other == name:
+                continue
+            # The pen only frees up after two missed feeds.
+            if day + 2 + other_spec["first_yield_day"] > LAST_DAY:
+                continue
+            gain = animal_profit(other, day + 2, market_inventory,
+                                 info["animal_counts"], params, pull) - keep
+            if gain > best_gain:
+                best_gain, best_name = gain, other
+        if best_name and best_gain >= params["cull_min_edge"]:
+            culls.add(pos)
+        if len(culls) >= params["cull_max_per_turn"]:
+            break
+    return culls
+
+
 def livestock_plan(params, info, shed, day, money, market_inventory, carried=None,
                    pull=None, coverage=None):
     """Pens to build and animals to buy, kept consistent with each other.
@@ -878,6 +924,7 @@ def build_jobs(obs, farm, private, params, depots, day, hours_left, endgame, inf
 
     # ---- Livestock: four co-located jobs per tile, no watering, no replanting.
     fert_price = marginal_price("FERTILIZER")
+    culls = cull_candidates(info, params, day, market_inventory, pull, coverage)
     for pos, tile in info["animals"]:
         spec = ANIMALS[tile["animal"]]
         product = spec["product"]
@@ -893,6 +940,12 @@ def build_jobs(obs, farm, private, params, depots, day, hours_left, endgame, inf
             add(pos, ["COLLECT_FERTILIZER"], fert_price, "COLLECT_FERTILIZER")
 
         if endgame:
+            continue
+
+        if pos in culls:
+            # Deliberately withheld: the pen is worth more holding something
+            # else, and starving is the only way to empty it. Its produce is
+            # still harvested and its fertilizer still collected on the way out.
             continue
 
         if not tile.get("fed_today"):

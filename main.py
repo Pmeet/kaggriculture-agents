@@ -201,6 +201,11 @@ DEFAULTS = {
     # measured.
     "capacity_slack": 1e9,
     "job_weight_scarcity": 0.0,
+    # Only fertilise/care for what the town is actually draining. 0.0 = any.
+    "fertilize_demand_floor": 0.0,
+    "care_demand_floor": 0.0,
+    # Furthest tile worth planting, measured from the nearest shed access.
+    "max_plant_radius": 99,
     "fertilize_saturated_edge": 1e9,
     # Weight on demand from shops that have not unlocked yet. 1.0 is "believe
     # the pool average", and it is also what measures best: +$13.4k paired
@@ -493,10 +498,11 @@ def demand_coverage(obs, day, params):
         # Observed shops count for what they are; unopened ones for the average.
         expected = seen.get(item, 0.0) + remaining * EXPECTED_SHOP_DEMAND.get(item, 0.0)
         coverage[item] = expected / max(1.0, total)
+    # Raw share in [0, 1]: 1.0 is the most-wanted product this season, 0.0 is
+    # one no shop will ever ask for. Callers compress it to taste -- `crop_value`
+    # through `demand_floor`, the fertilise and care gates as a threshold.
     best = max(coverage.values()) or 1.0
-    floor = params["demand_floor"]
-    return {item: floor + (1.0 - floor) * (value / best)
-            for item, value in coverage.items()}
+    return {item: value / best for item, value in coverage.items()}
 
 
 def rival_supply(obs, player, day):
@@ -723,7 +729,9 @@ def crop_value(crop, market_inventory, planted, day, money, params, pull=None,
     value = profit / max(1.0, cost) / (1.0 + rate * occupancy)
     # A crop nobody reliably wants is worth less than its average says, because
     # the average is over seasons and we only ever play this one.
-    return value * (coverage or {}).get(crop, 1.0)
+    floor = params["demand_floor"]
+    share = (coverage or {}).get(crop, 1.0)
+    return value * (floor + (1.0 - floor) * share)
 
 
 # --------------------------------------------------------------------------
@@ -986,8 +994,12 @@ def build_jobs(obs, farm, private, params, depots, day, hours_left, endgame, inf
                 value += tile.get("pending_care_bonus", 0) * unit_price
             add(pos, ["FEED"], value, "FEED", need="WHEAT")
 
-        if not tile.get("cared_today") and days_left >= 1:
-            # CARE banks +1 on the next production, but only on a fed day.
+        if (not tile.get("cared_today") and days_left >= 1
+                and (coverage or {}).get(product, 1.0) >= params["care_demand_floor"]):
+            # CARE banks +1 on the next production, but only on a fed day. It is
+            # the animal's fertilizer, so it earns its turn on the same test:
+            # care for the cow while an ice cream shop is open, not the sheep
+            # in a season that drew no yarn store.
             add(pos, ["CARE"], unit_price * 0.8, "CARE")
 
     # ---- Empty structures holding stock we already paid for.
@@ -1028,6 +1040,11 @@ def build_jobs(obs, farm, private, params, depots, day, hours_left, endgame, inf
             if gained > 0:
                 worth = gained * unit_price - marginal_price("FERTILIZER")
                 edge = params["fertilize_min_edge"]
+                # Growing two more of something no shop asked for is two more
+                # units into a market already at the floor. Spend the turn only
+                # where the town is draining what it would grow.
+                if (coverage or {}).get(crop, 1.0) < params["fertilize_demand_floor"]:
+                    edge = 1e9
                 if saturated:
                     # Nothing else to do with the dollar: the farm is full,
                     # so more yield per tile is the only margin left.
@@ -1094,6 +1111,11 @@ def build_jobs(obs, farm, private, params, depots, day, hours_left, endgame, inf
         if i - n_struct >= len(plan):
             break
         crop, worth, _score = plan[i - n_struct]
+        # Over half of every unit-turn is spent walking. A tile on the far edge
+        # of the third quadrant is watered from the shed all season, and the
+        # round trip can cost more than the crop clears.
+        if distance(pos, nearest_shed(pos, depots)) > params["max_plant_radius"]:
+            continue
         if crop and seeds.get(crop, 0) > 0:
             # A PLANT commits the tile to a whole cycle of watering and
             # harvesting, so its value must be net of the actions that cycle

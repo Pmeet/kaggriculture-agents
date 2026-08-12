@@ -444,6 +444,43 @@ concluded nothing; swept properly the result is monotone -- always -$10,819,
 edge 1 -$5,041, edge 4 -$2,739, edge 16 -$749, off -$697 -- so less is always
 better. Check what a threshold is denominated in before sweeping it.
 
+## Targeting fertiliser and care at what the town wants
+
+`demand_coverage` now returns a raw share in [0, 1] -- 1.0 is the most-wanted
+product this season, 0.0 one no shop will ever ask for -- and it tracks the
+actual draw: a yarn+carrot season reads wool 0.91 and milk 0.27, a
+milk+strawberry one reads milk 0.82 and wool 0.18. Callers compress it to taste.
+
+Gating **fertiliser** on it is directionally right and still not enough:
+
+| variant | held-out margin |
+| --- | --- |
+| fertilise, ungated | -$5,041 |
+| fertilise only where coverage >= 0.6 | -$4,205 |
+| fertilise only where coverage >= 0.8 | -$2,721 |
+| do not fertilise | **-$697** |
+
+Targeting recovers about half the loss, and the trend keeps converging on off.
+
+Gating **CARE** the same way is actively harmful: -$4,533 at a 0.35 floor and
+-$25,018 at 0.55. CARE banks +1 per production day and is the main multiplier on
+the whole herd, and coverage measures *relative* demand -- milk at 0.27 still
+sells near $290. Never withhold care from an animal that is producing.
+
+## The board is small: nothing is far away
+
+The shed access tiles are the four in the centre, (4,4) (5,4) (4,5) (5,5), and
+the quadrants radiate out from them. **The farthest tile on the whole board is 8
+steps from a shed**, and the distance histogram is 4/8/12/16/20/16/12/8/4 tiles
+at 0-8 steps.
+
+So capping how far out we will plant does nothing until it starts discarding
+usable land: radius 10 and 8 play byte-identical games to unlimited, radius 6
+costs -$9,344 and radius 4 costs -$15,872. "The far edge of the third quadrant"
+is eight steps from the shed. Movement is ~55% of unit-turns because the work is
+spread over up to 100 tiles that all lead back to one central shed, which is
+board geometry, not a placement mistake.
+
 ## Settled, so nobody re-litigates them
 
 - **The melon opening is correct.** It looks wrong in a replay -- 23 melon

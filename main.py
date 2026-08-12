@@ -153,6 +153,33 @@ DEFAULTS = {
     "fertilizer_capture": 0.9,
     "plant_commitment_cost": 42.0,
     "town_pull_weight": 0.5,
+    # --- Robustness to the shop draw. The forecast above is right on average
+    # and wrong every particular season, and we only ever play this one.
+    # `demand_floor` is what a product nobody wants is still worth (melon has no
+    # shop demand at all); `max_crop_share` caps any one crop's slice of the
+    # farm once `diversify_after` tiles are committed; `rival_supply_weight`
+    # charges the opponent's visible production against our expected price.
+    # `demand_floor` and `max_crop_share` are OFF (1.0). Both implement "spread
+    # the farm so an unlucky shop draw is survivable", and both cost $25-48k a
+    # game, for one reason: melon is not a product, it is the capital pump.
+    # 19-20 melon tiles land ~$5.6k in a single lump on day 11, which buys the
+    # herd in one purchase while livestock still has 18 days to compound it.
+    # 16 tiles land $3.8k, which buys one cow, and the farm never catches up --
+    # day 20 shows 6 cows and 2 sheep against 10 and 7. Anything that trims
+    # melon below ~19 falls off that cliff, whatever its reason for trimming.
+    # Kept switched on a parameter so the cliff can be re-tested if the opening
+    # ever gets another way to bank a day-11 lump.
+    "demand_floor": 1.0,
+    "max_crop_share": 1.0,
+    "diversify_after": 6,
+    # Charging the opponent's visible production against our expected price.
+    # Measures neutral locally (0.500, +$657 held out) and cannot measure better
+    # there: the local opponent is a copy of us, so "what they planted" is what
+    # we planted. It is a real signal only against a ladder that plays
+    # differently, which is where it is being tested.
+    "rival_supply_weight": 0.10,
+    # Buying land just because the bank is full measures -$3,486. Off.
+    "expand_when_rich": 1e9,
     # Weight on demand from shops that have not unlocked yet. 1.0 is "believe
     # the pool average", and it is also what measures best: +$13.4k paired
     # margin on held-out seeds (0.896) against the agent without it. Both
@@ -345,7 +372,8 @@ def crop_jobs(crop, occupancy):
     return 1 + 1 + survival + window + 1
 
 
-def animal_profit(name, day, market_inventory, owned, params, pull=None):
+def animal_profit(name, day, market_inventory, owned, params, pull=None,
+                  coverage=None):
     """Dollars a fresh animal returns for the rest of the season.
 
     Fed and cared for daily, ``pending_care_bonus`` banks one per day and is
@@ -400,6 +428,98 @@ for _shop, _products in SHOP_DEMAND.items():
         EXPECTED_SHOP_DEMAND[_item] = (
             EXPECTED_SHOP_DEMAND.get(_item, 0.0) + _multiplier / len(SHOP_DEMAND)
         )
+
+
+SHOP_COVERAGE = {
+    item: share / max(EXPECTED_SHOP_DEMAND.values())
+    for item, share in EXPECTED_SHOP_DEMAND.items()
+}
+
+
+def demand_coverage(obs, day, params):
+    """How reliably the town will want a product, in [0, 1].
+
+    Expected demand is not the same as dependable demand. Melon is the extreme:
+    no shop demands it at all, so its entire season market is the town centre's
+    30 units and nothing that happens at an unlock can ever help it. Wheat sits
+    in five of the eight shops, so almost any draw wants some.
+
+    Weighting by coverage is what stops the farm betting the season on one
+    number being average. It reads the shops that have actually unlocked and
+    falls back to the pool share for the ones still to come, so an unlucky draw
+    -- four yarn stores and no bakery -- moves the farm off the crop that draw
+    left worthless instead of committing to it on the prior.
+    """
+    shops = (obs.get("town") or {}).get("unlocked_shops") or []
+    remaining = max(0, MAX_SHOP_INSTANCES - len(shops))
+    seen = {}
+    for shop in shops:
+        products = SHOP_DEMAND.get(shop)
+        if not products:
+            continue
+        multiplier = 2 if len(products) == 1 else 1
+        for item in products:
+            seen[item] = seen.get(item, 0.0) + multiplier
+    total = len(shops) + remaining
+    coverage = {}
+    for item in PRODUCTS:
+        # Observed shops count for what they are; unopened ones for the average.
+        expected = seen.get(item, 0.0) + remaining * EXPECTED_SHOP_DEMAND.get(item, 0.0)
+        coverage[item] = expected / max(1.0, total)
+    best = max(coverage.values()) or 1.0
+    floor = params["demand_floor"]
+    return {item: floor + (1.0 - floor) * (value / best)
+            for item, value in coverage.items()}
+
+
+def rival_supply(obs, player, day):
+    """Units the opponent's visible farm will still deliver this season.
+
+    `rival_incoming` answers "when do we sell"; this answers "what do we grow".
+    Both players sell into one inventory, so a quadrant of their strawberry
+    depresses our price exactly as our own would, and the tiles carry planting
+    dates so the whole remaining schedule is readable. Planting into what they
+    have already committed to is how a market paying $285 becomes one paying $40.
+    """
+    farms = obs.get("farms") or []
+    if len(farms) < 2:
+        return {}
+    supply = {}
+    for row in farms[1 - player]["tiles"]:
+        for tile in row:
+            if not isinstance(tile, dict):
+                continue
+            if tile.get("kind") == "PLANT":
+                crop = tile.get("crop")
+                cd = CROPS.get(crop)
+                if not cd:
+                    continue
+                age = day - tile.get("planted_day", day)
+                if cd["ongoing"]:
+                    left = max(0, cd["max_yield"] - tile.get("yield_units", 0))
+                    remaining_days = max(0, LAST_DAY - day)
+                    left = min(left, 1 + remaining_days // max(1, cd["interval"]))
+                else:
+                    left = max(0, crop_units(crop) - tile.get("yield_units", 0))
+                    if age > harvest_age(crop) + 2:
+                        left = 0
+                supply[crop] = supply.get(crop, 0) + left
+            elif "animal" in tile:
+                spec = ANIMALS.get(tile["animal"])
+                if not spec:
+                    continue
+                productive = LAST_DAY - day - max(
+                    0, spec["first_yield_day"] - (day - tile.get("placed_day", day))
+                )
+                if productive < 0:
+                    continue
+                interval = max(1, spec["interval"])
+                units = (productive // interval + 1) * min(
+                    spec["max_held"], 1 + spec["interval"]
+                )
+                product = spec["product"]
+                supply[product] = supply.get(product, 0) + units
+    return supply
 
 
 def rival_incoming(obs, player, day, horizon):
@@ -547,7 +667,8 @@ def crop_profit(crop, market_inventory, planted, day, pull=None):
     return units * expected - cd["seed"]
 
 
-def crop_value(crop, market_inventory, planted, day, money, params, pull=None):
+def crop_value(crop, market_inventory, planted, day, money, params, pull=None,
+               coverage=None):
     """Expected profit per unit of the two things we are actually short of.
 
     Land and labour are both scarce, so a crop is scored against the tile-days
@@ -572,7 +693,10 @@ def crop_value(crop, market_inventory, planted, day, money, params, pull=None):
     cost = occupancy * params["land_weight"] + crop_jobs(crop, occupancy) * params["job_weight"]
     starved = 1.0 - min(1.0, money / max(1.0, params["cash_comfort"]))
     rate = params["discount_rate"] + params["starved_discount"] * starved
-    return profit / max(1.0, cost) / (1.0 + rate * occupancy)
+    value = profit / max(1.0, cost) / (1.0 + rate * occupancy)
+    # A crop nobody reliably wants is worth less than its average says, because
+    # the average is over seasons and we only ever play this one.
+    return value * (coverage or {}).get(crop, 1.0)
 
 
 # --------------------------------------------------------------------------
@@ -618,7 +742,8 @@ def animal_targets(params):
     )
 
 
-def animal_order(params, info, market_inventory, day, owned=None, pull=None):
+def animal_order(params, info, market_inventory, day, owned=None, pull=None,
+                 coverage=None):
     """Livestock ranked by profit per dollar, dropping anything unprofitable.
 
     ``owned`` must count animals already bought and waiting in the shed or being
@@ -634,13 +759,20 @@ def animal_order(params, info, market_inventory, day, owned=None, pull=None):
         worth = animal_profit(name, day, market_inventory, counts, params, pull)
         if worth <= 0:
             continue
+        # Deliberately *not* weighted by demand coverage. Tilting toward the
+        # best-covered product concentrates the herd into it -- 14 cows and 2
+        # sheep rather than 7 and 7 -- and milk and wool are both thin markets
+        # that floor after 40-60 surplus units. Spreading production across
+        # two of them is worth more than picking the better one, and
+        # `animal_profit` already prices each additional animal against the
+        # supply of its own product. Measured: -$37k a game with the tilt.
         ranked.append((worth / ANIMALS[name]["cost"], name, target))
     ranked.sort(reverse=True)
     return [(name, target) for _score, name, target in ranked]
 
 
 def livestock_plan(params, info, shed, day, money, market_inventory, carried=None,
-                   pull=None):
+                   pull=None, coverage=None):
     """Pens to build and animals to buy, kept consistent with each other.
 
     Two accounting rules earn their keep here. Animals already sitting in the
@@ -684,7 +816,7 @@ def livestock_plan(params, info, shed, day, money, market_inventory, carried=Non
                 + carried.get(name, 0)
             )
         for name, target in animal_order(params, info, market_inventory, day,
-                                         owned_all, pull):
+                                         owned_all, pull, coverage):
             spec = ANIMALS[name]
             if day + spec["first_yield_day"] >= LAST_DAY:
                 continue
@@ -710,7 +842,7 @@ def livestock_plan(params, info, shed, day, money, market_inventory, carried=Non
 # --------------------------------------------------------------------------
 
 def build_jobs(obs, farm, private, params, depots, day, hours_left, endgame, info,
-               money, carried, pull):
+               money, carried, pull, coverage=None):
     market_inventory = obs["market"]["inventory"]
     seeds = private["seeds"]
     shed = private["shed"]
@@ -838,7 +970,7 @@ def build_jobs(obs, farm, private, params, depots, day, hours_left, endgame, inf
     wanted, by_distance, n_struct = [], [], 0
     if not endgame and info["empty"]:
         wanted, _purchases = livestock_plan(
-            params, info, shed, day, money, market_inventory, carried, pull
+            params, info, shed, day, money, market_inventory, carried, pull, coverage
         )
         by_distance = sorted(info["empty"], key=lambda p: distance(p, nearest_shed(p, depots)))
         n_struct = min(len(wanted), len(by_distance))
@@ -847,7 +979,7 @@ def build_jobs(obs, farm, private, params, depots, day, hours_left, endgame, inf
     # the ones committed before it. The first entry is also what a weeded tile
     # is worth, since digging it out is what makes that planting possible.
     plan = plan_planting(obs, params, info, day, money, pull,
-                         max(1, len(by_distance) - n_struct))
+                         max(1, len(by_distance) - n_struct), coverage)
     crop_choice = plan[0][0] if plan else None
     tile_worth = plan[0][1] if plan else 0.0
     crop_score = plan[0][2] if plan else 0.0
@@ -891,20 +1023,21 @@ def build_jobs(obs, farm, private, params, depots, day, hours_left, endgame, inf
     return jobs, crop_choice, crop_score, seed_want
 
 
-def pick_crop(obs, params, info, day, money, pull=None):
+def pick_crop(obs, params, info, day, money, pull=None, coverage=None):
     market_inventory = obs["market"]["inventory"]
     best, best_score = None, 0.0
     for crop in CROPS:
         if crop == "MELON" and info["planted"].get("MELON", 0) >= params["melon_max_tiles"]:
             continue
         score = crop_value(crop, market_inventory, info["planted"], day, money,
-                           params, pull)
+                           params, pull, coverage)
         if score > best_score:
             best, best_score = crop, score
     return best, best_score
 
 
-def plan_planting(obs, params, info, day, money, pull=None, n_tiles=1):
+def plan_planting(obs, params, info, day, money, pull=None, n_tiles=1,
+                  coverage=None):
     """Choose a crop for each empty tile, each priced against the ones before it.
 
     ``pick_crop`` scores crops once and every empty tile gets the winner, so the
@@ -927,7 +1060,7 @@ def plan_planting(obs, params, info, day, money, pull=None, n_tiles=1):
     n_tiles = max(0, int(n_tiles))
 
     if params.get("tile_alloc", "marginal") != "marginal":
-        crop, score = pick_crop(obs, params, info, day, money, pull)
+        crop, score = pick_crop(obs, params, info, day, money, pull, coverage)
         if crop is None:
             return []
         worth = max(0.0, crop_profit(crop, market_inventory, info["planted"], day, pull))
@@ -950,14 +1083,28 @@ def plan_planting(obs, params, info, day, money, pull=None, n_tiles=1):
         held = sum(planted.get(c, 0) for c in fast)
         reserve = max(0, params["early_cash_tiles"] - held)
 
+    # No crop may take more than its share of the farm. Marginal pricing already
+    # backs a crop off as its own supply lands, but it prices the *average*
+    # season: it will still commit the whole quadrant to one crop and then find
+    # the draw wanted something else. The cap is what makes a bad draw survivable
+    # rather than fatal, and it is why the share is set on tiles rather than on
+    # money -- tiles are the thing that cannot be reallocated once committed.
+    committed = sum(planted.values()) or 0
+    share = params["max_crop_share"]
+
     plan = []
     for _ in range(n_tiles):
         candidates = fast if len(plan) < reserve else CROPS
+        total = committed + len(plan) + 1
         best, best_score = None, 0.0
         for crop in candidates:
             if crop == "MELON" and planted.get("MELON", 0) >= params["melon_max_tiles"]:
                 continue
-            score = crop_value(crop, market_inventory, planted, day, money, params, pull)
+            if share < 1.0 and total > params["diversify_after"]:
+                if planted.get(crop, 0) + 1 > share * total:
+                    continue
+            score = crop_value(crop, market_inventory, planted, day, money, params,
+                               pull, coverage)
             if score > best_score:
                 best, best_score = crop, score
         if best is None:
@@ -1238,7 +1385,7 @@ def plan_hiring(farm, params, hour, hours_left, workload, money, slots, endgame)
 
 
 def plan_market(obs, farm, private, params, shed, day, hour, step, info,
-                endgame, seed_want, carried, pull, incoming):
+                endgame, seed_want, carried, pull, incoming, coverage=None):
     orders = []
     money = farm["money"]
     market_inventory = obs["market"]["inventory"]
@@ -1278,7 +1425,7 @@ def plan_market(obs, farm, private, params, shed, day, hour, step, info,
     # with fewer crops and no weeding at all.
     if slots > 0 and not endgame:
         _pens, purchases = livestock_plan(
-            params, info, shed, day, budget, market_inventory, carried, pull
+            params, info, shed, day, budget, market_inventory, carried, pull, coverage
         )
         for name, want in purchases:
             if slots <= 0:
@@ -1312,7 +1459,12 @@ def plan_market(obs, farm, private, params, shed, day, hour, step, info,
     extra = len(farm["unlocked_quadrants"]) - 1
     if slots > 0 and not endgame and extra < len(LAND_PRICES) and day <= params["land_last_day"]:
         cost = LAND_PRICES[extra]
-        room = len(info["empty"]) <= params["expand_when_empty"]
+        # Cash that is not in the ground is not earning. Waiting for the farm to
+        # be nearly full before buying the next quadrant left $5-7k idle while
+        # shops opened for produce we had no tiles to grow, so an ample bank is
+        # itself a reason to expand.
+        room = (len(info["empty"]) <= params["expand_when_empty"]
+                or budget - cost >= params["expand_when_rich"])
         if budget - cost >= params["work_reserve"] and room:
             orders.append(["BUY_LAND"])
             budget -= cost
@@ -1463,11 +1615,17 @@ def _play(obs, params):
     shed_total = sum(v for v in shed.values() if v > 0)
     info = census(farm)
     pull = town_pull(obs, day, params)
+    coverage = demand_coverage(obs, day, params)
+    # The opponent's committed production competes for exactly the demand we
+    # are pricing against, so it is negative town pull.
+    if params["rival_supply_weight"] > 0:
+        for item, rival_units in rival_supply(obs, player, day).items():
+            pull[item] = pull.get(item, 0.0) - rival_units * params["rival_supply_weight"]
     incoming = rival_incoming(obs, player, day, params["rival_horizon"])
 
     jobs, _crop_choice, _crop_score, seed_want = build_jobs(
         obs, farm, private, params, depots, day, hours_left, endgame, info,
-        farm["money"], carried, pull,
+        farm["money"], carried, pull, coverage,
     )
 
     if endgame:
@@ -1507,7 +1665,7 @@ def _play(obs, params):
 
     market = plan_market(
         obs, farm, private, params, shed, day, hour, step, info, endgame,
-        seed_want, carried, pull, incoming,
+        seed_want, carried, pull, incoming, coverage,
     )
     return {
         "farmer": unit_actions[0] if unit_actions else ["PASS"],

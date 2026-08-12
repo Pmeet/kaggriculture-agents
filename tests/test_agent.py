@@ -130,6 +130,41 @@ class ActionContractTest(unittest.TestCase):
         ))
         self.assert_well_formed(action, 1)
 
+    def test_reads_an_opponent_farm_that_is_actually_growing_things(self):
+        """Every fixture gave the opponent a bare board, so no test ever ran the
+        code that reads their production. A live game does from day one."""
+        obs = observation(tiles=locked_board(), day=6, money=5000,
+                          hand_positions=[(4, 4)], inventories=[{}, {}])
+        rival = [[None] * 10 for _ in range(10)]
+        rival[0][0] = {
+            "kind": "PLANT", "crop": "STRAWBERRY", "planted_day": 0,
+            "watered_today": True, "consecutive_unwatered": 0, "yield_units": 1,
+            "max_lifespan_step": 400, "fertilized_until_day": -1,
+        }
+        rival[0][1] = {
+            "kind": "PLANT", "crop": "MELON", "planted_day": 1,
+            "watered_today": True, "consecutive_unwatered": 0, "yield_units": 0,
+            "max_lifespan_step": 400, "fertilized_until_day": -1,
+        }
+        rival[1][0] = {
+            "kind": "PASTURE", "animal": "COW", "placed_day": 0, "yield_units": 2,
+            "fed_today": True, "consecutive_unfed": 0, "cared_today": True,
+            "fertilizer_available": True, "pending_care_bonus": 2,
+        }
+        obs["farms"][1]["tiles"] = rival
+
+        supply = main.rival_supply(obs, 0, 6)
+        self.assertGreater(supply.get("STRAWBERRY", 0), 0)
+        self.assertGreater(supply.get("MILK", 0), 0)
+
+        # The agent must still do real work, not fall back to the PASS handler.
+        action = main._play(obs, dict(main.DEFAULTS))
+        self.assert_well_formed(action, 1)
+        self.assertNotEqual(
+            ["PASS"], action["farmer"],
+            "a farm with empty tiles and money should never idle the farmer",
+        )
+
     def test_missing_optional_observation_keys_do_not_crash(self):
         obs = observation(tiles=locked_board())
         del obs["day"]

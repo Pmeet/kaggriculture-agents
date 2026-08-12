@@ -481,6 +481,47 @@ is eight steps from the shed. Movement is ~55% of unit-turns because the work is
 spread over up to 100 tiles that all lead back to one central shed, which is
 board geometry, not a placement mistake.
 
+## Layer 0: measure phases, not games (`lab/phases.py`)
+
+One number per game cannot distinguish a change that does nothing from one that
+gains $8k early and loses $10k late -- which is the shape of most real strategy
+changes. `lab/phases.py` reports the margin each phase earned on its own, with
+the farm state at each boundary.
+
+Its first run re-read a result that had looked uniformly bad. The wheat opening
+**wins** days 0-10 by $447, then loses $16,282 across days 10-20 and $16,046
+after. The state table says why: day 20 finds it holding **6 animals against the
+melon economy's 14**, three quadrants against four. Wheat earns early but
+trickles, and a trickle cannot buy a herd inside the window where livestock
+still compounds. That is a fixable problem and a different one from "the wheat
+opening is bad".
+
+Use this before concluding anything about a strategy change.
+
+## Layer 2 first cut: pricing a tile against the day it sells
+
+`crop_profit` credits a crop the *whole* season's town demand and charges it the
+*whole* in-flight supply, whatever day it actually sells. `sale_horizon` scales
+both by the fraction of the remaining season that elapses before harvest.
+
+More principled, and it does not pay: -$4,210 naive, -$1,815 once the demand
+weights are re-fitted to compensate, against -$697 for leaving it alone. The
+weights and the horizon are strongly complementary -- `town_pull_weight` 1.5
+alone is -$12,720, and only stops being terrible when the horizon scales it back
+down -- so neither can be tuned without the other.
+
+The approximation is what is wrong: supply does **not** arrive evenly, it lands
+in lumps on specific harvest days, and every planted tile already carries the
+date it will land. A real projection walks the tiles and accumulates per day.
+That is the version worth building; the linear share was the cheap sketch.
+
+**A caution this produced.** The phase table for horizon-plus-refitted-weights
+showed +$2,823 in the endgame, and it was tempting to read that as "horizon
+pricing helps late". It does not -- gated to day 20+ it plays an identical game,
+because by then `days_left` is small enough that the share is already 1.0. The
+endgame swing came from the weights bundled into the same variant. Change one
+thing per phase table.
+
 ## Settled, so nobody re-litigates them
 
 - **The melon opening is correct.** It looks wrong in a replay -- 23 melon

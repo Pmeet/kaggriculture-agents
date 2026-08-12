@@ -201,6 +201,9 @@ DEFAULTS = {
     # measured.
     "capacity_slack": 1e9,
     "job_weight_scarcity": 0.0,
+    # Price a tile against the market on the day it sells, not today's.
+    "horizon_pricing": False,
+    "horizon_from_day": 0,
     # Only fertilise/care for what the town is actually draining. 0.0 = any.
     "fertilize_demand_floor": 0.0,
     "fertilize_max_quadrants": 99,
@@ -691,13 +694,41 @@ def fertilize_gain(crop, tile, day):
     return max(0, boosted - plain)
 
 
-def crop_profit(crop, market_inventory, planted, day, pull=None):
+def sale_horizon(day, occupancy, params):
+    """Fraction of the rest of the season that elapses before this tile sells.
+
+    A crop planted today is priced against a market that does not exist yet.
+    The town keeps draining while it grows and both farms keep delivering, so
+    what matters is the inventory on the day it *sells*, not today's. Charging
+    a whole season of supply and crediting a whole season of demand to a wheat
+    tile that clears in four days flatters short crops and punishes long ones by
+    the same mistake in opposite directions.
+    """
+    # Only late. Measured by phase, the refinement is worth +$4,397 across days
+    # 20-30 and -$5,274 across 10-20: with most of the season left the linear
+    # "supply arrives evenly" approximation is at its worst -- a wheat tile is
+    # credited a seventh of the town's demand when its real harvest window is
+    # four specific days -- while near the end `days_left` is small, the share
+    # is close to 1 for anything long, and it only trims genuinely short crops.
+    if not params.get("horizon_pricing") or day < params.get("horizon_from_day", 0):
+        return 1.0, 1.0
+    days_left = max(1, LAST_DAY - day)
+    share = min(1.0, max(0.0, occupancy) / days_left)
+    # Supply already in the ground arrives on its own schedule, which we do not
+    # track per tile; demand accrues evenly. Both are scaled by the same share,
+    # so the ratio the price depends on stays honest while the level shrinks.
+    return share, share
+
+
+def crop_profit(crop, market_inventory, planted, day, pull=None, params=None):
     """Dollars a tile returns over one planting, at the price we expect to get."""
     cd = CROPS[crop]
     units, occupancy = realizable(crop, day)
     if units <= 0:
         return -1.0
-    in_flight = planted.get(crop, 0) * units - (pull or {}).get(crop, 0)
+    supply_share, demand_share = sale_horizon(day, occupancy, params or {})
+    in_flight = (planted.get(crop, 0) * units * supply_share
+                 - (pull or {}).get(crop, 0) * demand_share)
     expected = price_at(crop, market_inventory.get(crop, MARKET_I0) + in_flight + units)
     return units * expected - cd["seed"]
 
@@ -720,7 +751,9 @@ def crop_value(crop, market_inventory, planted, day, money, params, pull=None,
     units, occupancy = realizable(crop, day)
     if units <= 0 or occupancy <= 0:
         return -1.0
-    in_flight = planted.get(crop, 0) * units - (pull or {}).get(crop, 0)
+    supply_share, demand_share = sale_horizon(day, occupancy, params)
+    in_flight = (planted.get(crop, 0) * units * supply_share
+                 - (pull or {}).get(crop, 0) * demand_share)
     expected = price_at(crop, market_inventory.get(crop, MARKET_I0) + in_flight + units)
     profit = units * expected - cd["seed"]
     if profit <= 0:
@@ -1185,7 +1218,8 @@ def plan_planting(obs, params, info, day, money, pull=None, n_tiles=1,
         crop, score = pick_crop(obs, params, info, day, money, pull, coverage)
         if crop is None:
             return []
-        worth = max(0.0, crop_profit(crop, market_inventory, info["planted"], day, pull))
+        worth = max(0.0, crop_profit(crop, market_inventory, info["planted"], day, pull,
+                                     params))
         return [(crop, worth, score)] * n_tiles
 
     planted = dict(info["planted"])
@@ -1237,7 +1271,7 @@ def plan_planting(obs, params, info, day, money, pull=None, n_tiles=1,
                 best, best_score = crop, score
         if best is None:
             break
-        worth = max(0.0, crop_profit(best, market_inventory, planted, day, pull))
+        worth = max(0.0, crop_profit(best, market_inventory, planted, day, pull, params))
         plan.append((best, worth, best_score))
         planted[best] = planted.get(best, 0) + 1
     return plan

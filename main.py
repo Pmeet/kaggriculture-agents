@@ -143,15 +143,22 @@ DEFAULTS = {
     "tile_alloc": "marginal",
     # Tiles held back for a crop that yields inside `early_cash_days`, while the
     # farm is younger than `early_cash_last_day`. Off until measured.
-    "early_cash_tiles": 0,
+    # The opening is wheat, not melon. Wheat yields on day 2 and sits in five
+    # of the eight shops, so it earns across days 2-10 instead of in one lump,
+    # and it is what the town actually drains.
+    "early_cash_tiles": 20,
     "early_cash_days": 3,
-    "early_cash_last_day": 6,
+    "early_cash_last_day": 8,
     "land_weight": 0.5,
     "job_weight": 2.2,
     "dig_fraction": 0.25,
     "build_fraction": 0.8,
     "fertilizer_capture": 0.9,
-    "plant_commitment_cost": 42.0,
+    # A flat charge per follow-up job priced wheat's whole cycle at $8 -- $260
+    # of profit less 6 jobs at $42 -- against a $9 cost to walk one tile, so
+    # short-cycle crops could never be planted at all. That was invisible while
+    # melon carried the economy; it is the binding constraint once it does not.
+    "plant_commitment_cost": 8.0,
     "town_pull_weight": 0.5,
     # --- Robustness to the shop draw. The forecast above is right on average
     # and wrong every particular season, and we only ever play this one.
@@ -172,6 +179,9 @@ DEFAULTS = {
     "demand_floor": 1.0,
     "max_crop_share": 1.0,
     "diversify_after": 6,
+    # Earliest day melon may be planted. The opening is worth more spent on
+    # what the shops actually drain.
+    "melon_first_day": 12,
     # Charging the opponent's visible production against our expected price.
     # Measures neutral locally (0.500, +$657 held out) and cannot measure better
     # there: the local opponent is a copy of us, so "what they planted" is what
@@ -1099,6 +1109,12 @@ def plan_planting(obs, params, info, day, money, pull=None, n_tiles=1,
         best, best_score = None, 0.0
         for crop in candidates:
             if crop == "MELON" and planted.get("MELON", 0) >= params["melon_max_tiles"]:
+                continue
+            # Melon occupies a tile for ten days and pays into a market of 30
+            # units a season. Keeping it out of the opening frees that land for
+            # whatever the shops turn out to want; it earns its place later only
+            # on tiles nothing else is waiting for.
+            if crop == "MELON" and day < params["melon_first_day"]:
                 continue
             if share < 1.0 and total > params["diversify_after"]:
                 if planted.get(crop, 0) + 1 > share * total:

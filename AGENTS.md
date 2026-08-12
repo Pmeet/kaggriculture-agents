@@ -526,6 +526,30 @@ The wheat opening goes from -$28,509 to -$4,011, and by phase from
 This is the shape every remaining parameter should be checked for: a constant
 that was fitted under one regime and silently encodes it.
 
+## Layer 3: joint parameter search (`lab/evolve.py`)
+
+`optimize.py` moves one parameter at a time, which is the wrong shape: nearly
+every real finding this season has been an *interaction*. `evolve.py` is a
+(1+lambda) search that perturbs a random **subset** together, so a pair can move
+jointly even when neither helps alone. Three guards: the incumbent is re-scored
+on the same seeds as its challengers each generation, every accepted step is
+validated on disjoint seeds and both numbers logged, and the objective is a pool
+rather than one mirror.
+
+Run from the shop-led defaults it found, in nine generations, a set that turns
+**-$4,011 into +$2,161** held out against `baseline_j` -- the first time the
+shop-led economy has beaten the melon one. Held-out margin rose with search
+margin the whole way, which is what says it is finding signal and not seeds.
+
+The biggest movers were parameters nobody had thought to question: `job_weight`
+2.2 -> 1.16, `plant_commitment_cost` 8 -> 20.9, `build_fraction` 0.8 -> 0.2,
+`rival_supply_weight` 0.10 -> 0.31, `max_hands` 14 -> 11.
+
+**Watch the checkpoint while it runs.** It rewrites `evolved.json` on every
+improvement, so reading the file and applying it are not atomic -- a set was
+applied here that differed from the one validated a minute earlier. Stop the
+search before adopting, then re-validate exactly what landed in `DEFAULTS`.
+
 ## Layer 2 first cut: pricing a tile against the day it sells
 
 `crop_profit` credits a crop the *whole* season's town demand and charges it the

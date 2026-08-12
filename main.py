@@ -195,6 +195,7 @@ DEFAULTS = {
     "rival_supply_weight": 0.10,
     # Buying land just because the bank is full measures -$3,486. Off.
     "expand_when_rich": 1e9,
+    "land_before_livestock": False,
     # Weight on demand from shops that have not unlocked yet. 1.0 is "believe
     # the pool average", and it is also what measures best: +$13.4k paired
     # margin on held-out seeds (0.896) against the agent without it. Both
@@ -1487,6 +1488,27 @@ def plan_market(obs, farm, private, params, shed, day, hour, step, info,
                 budget -= want * unit_price
                 slots -= 1
 
+    # ---- Land, when it is allowed to outrank livestock. The farm is fully
+    # invested and broke until day 21, so the fourth quadrant is unaffordable
+    # while it would still pay and merely legal afterwards. Buying it before the
+    # marginal cow is the only way to reach it in time.
+    def buy_land(budget, slots):
+        extra = len(farm["unlocked_quadrants"]) - 1
+        if slots <= 0 or endgame or extra >= len(LAND_PRICES):
+            return budget, slots, False
+        if day > params["land_last_day"]:
+            return budget, slots, False
+        cost = LAND_PRICES[extra]
+        room = (len(info["empty"]) <= params["expand_when_empty"]
+                or budget - cost >= params["expand_when_rich"])
+        if budget - cost >= params["work_reserve"] and room:
+            orders.append(["BUY_LAND"])
+            return budget - cost, slots - 1, True
+        return budget, slots, False
+
+    if params["land_before_livestock"]:
+        budget, slots, _bought = buy_land(budget, slots)
+
     # ---- Livestock next. A cared-for cow returns roughly $415 a day against a
     # $400 price, so an animal-day is the most valuable thing a dollar buys and
     # every day it is bought late is a day of production gone. Ladder replays
@@ -1525,19 +1547,8 @@ def plan_market(obs, farm, private, params, shed, day, hour, step, info,
 
     # ---- Land. Twenty-five tiles for $1k/$2k/$4k pays back within days, but
     # only once the tiles we already hold are full.
-    extra = len(farm["unlocked_quadrants"]) - 1
-    if slots > 0 and not endgame and extra < len(LAND_PRICES) and day <= params["land_last_day"]:
-        cost = LAND_PRICES[extra]
-        # Cash that is not in the ground is not earning. Waiting for the farm to
-        # be nearly full before buying the next quadrant left $5-7k idle while
-        # shops opened for produce we had no tiles to grow, so an ample bank is
-        # itself a reason to expand.
-        room = (len(info["empty"]) <= params["expand_when_empty"]
-                or budget - cost >= params["expand_when_rich"])
-        if budget - cost >= params["work_reserve"] and room:
-            orders.append(["BUY_LAND"])
-            budget -= cost
-            slots -= 1
+    if not params["land_before_livestock"]:
+        budget, slots, _bought = buy_land(budget, slots)
 
     # Market orders resolve by index, and each player's order i is quoted against
     # the same pre-commit inventory as the opponent's order i. A sell at index 0

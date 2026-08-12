@@ -333,6 +333,57 @@ strategy tuning. Look here first.
   bound; `move_factor` did.
 - **Locked shed tiles** swallowed PICKUP/DROP on the old engine and no longer do.
 
+## Why the fourth quadrant never opens, and why that is correct
+
+Traced day by day (seed 1, v17). The 4th quadrant costs $4,000 and needs
+$4,450 free after `work_reserve`:
+
+| day | bank | blocked by |
+| --- | --- | --- |
+| 0-21 | $94 - $2,172 | **cash** -- the farm is fully invested, never idle |
+| 22 | $14,174 | **`land_last_day: 20`** |
+| 25 | $25,962 | `land_last_day: 20` |
+| 29 | $51,768 | `land_last_day: 20` |
+
+The bank crosses the price on day 22; the gate closes on day 20. We are never
+both solvent and allowed. That looks like an obvious bug and it is not: every
+route to opening it measures negative.
+
+| change | held-out margin vs not doing it |
+| --- | --- |
+| `land_last_day` 26 | -$5,779 |
+| `land_last_day` 24 + land bought before livestock | -$6,106 |
+| land bought before livestock | -$448 (neutral) |
+| `expand_when_rich` 4000 | -$3,486 |
+
+A quadrant bought on day 22 has eight days to work. Strawberry needs ten to
+first yield, a cow eight before its first milk and then two-day intervals. The
+tiles cannot mature, so $4,000 of score buys less than $4,000 of produce.
+
+**Final cash is the score** -- reward is `farm["money"]`, and unsold stock is
+worth nothing. So $50k sitting in the bank on day 29 is not idle capital, it is
+fifty thousand points. Spending it late is only right when the return lands
+before the whistle, which is exactly what `land_last_day` and `animal_last_day`
+encode. The real constraint is not late-game spending, it is that income before
+day 20 is too small; that is where work belongs.
+
+## Hiring more hands is arithmetically impossible
+
+Hire prices are `fib(n)` and **reset every day**, so the cost of running a
+workforce is the cumulative sum, every day:
+
+| hands | per day | over 30 days | the last hand alone |
+| --- | --- | --- | --- |
+| 10 | $231 | $6,930 | $89 |
+| 14 | $1,595 | $47,850 | $610 |
+| 18 | $10,944 | $328,320 | $4,181 |
+| 26 | $514,227 | $15,426,810 | $196,418 |
+
+`max_hands: 14` is not a conservative cap, it is near the edge of what the
+economy can pay for. Measured at 26 it costs -$53,648 and the bank falls from
+$54,096 to $30,594. Weeds are the same story from the other side: `dig_fraction`
+1.0 measures -$679, because the actions are worth more elsewhere.
+
 ## Settled, so nobody re-litigates them
 
 - **The melon opening is correct.** It looks wrong in a replay -- 23 melon

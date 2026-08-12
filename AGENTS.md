@@ -1,6 +1,6 @@
 # Kaggriculture Agent Handoff
 
-Last updated: 2026-08-11 evening (Asia/Calcutta)
+Last updated: 2026-08-12 (Asia/Calcutta)
 
 Durable handoff for any agent continuing this work. Read with `README.md` and
 `ROADMAP.md`.
@@ -11,8 +11,9 @@ Durable handoff for any agent continuing this work. Read with `README.md` and
   ask me for submissions if you decide it's worth it"). Judgement still applies:
   five slots a day, only the latest two stay active, so submit when local
   evidence says a candidate beats the live one.
-- **Currently suspended by the user**, 2026-08-11: "Don't submit because I have
-  still more insights to give you." Hold submissions until they lift this.
+- The 2026-08-11 hold was lifted on 2026-08-12 ("add our first submission for
+  today") and v15 went up. The live constraint now is the two-active-slots rule:
+  see "Live submissions" below before uploading anything.
 - Never print, commit, or expose the Kaggle access token. It lives at
   `~/.kaggle/access_token` (mode 600) in WSL and is scoped per command via
   `KAGGLE_API_TOKEN="$(cat ~/.kaggle/access_token)"`.
@@ -72,7 +73,19 @@ day 12, $19.9k day 16, $44.7k day 20, $82k day 24, $110k day 28. **They are as
 broke as we are through the first third.** An idle opening is not the mistake it
 looks like.
 
-Two submissions are live (v13 689.5, v14 717.7). Ratings converge over hours.
+### Live submissions
+
+**v15 (55450849), submitted 2026-08-12 06:31 UTC** — per-tile marginal pricing
+plus the demand forecast, commit `04e3061`; frozen at `agents/baseline_j.py`.
+Validated COMPLETE, seeded at 600, and 709 after three games (2W-1L).
+
+v14 (55428714) is the other active slot, at **715 after 47 games, 23W-24L**.
+It is our only converged rating, so **do not submit a third agent until v15 has
+played enough games to compare** — a third upload drops v14 out of tracking and
+leaves two unproven agents.
+
+The melon-cap commit after v15 is *not* submitted; it is worth +$4,283 held out
+and is the natural v16 once v15's rating settles.
 
 ## The engine was rebalanced -- pin 1.32.6
 
@@ -280,10 +293,25 @@ strategy tuning. Look here first.
 - **Wheat.** The top agents sell 433 a game; we sell 28, and the market still
   ends 1,158 units below equilibrium with the price high. The demand forecast
   moved strawberry but not wheat. This is the largest single line item left.
-- **The left tail.** Ladder banks run $24k-$121k where local banks run $76-93k.
-  Something in real games goes wrong that never goes wrong locally. Pull the
-  replays of our own worst losses (episodes 91941649, 91937819, 91955747) and
-  find out what.
+- **The left tail — now the biggest open problem.** Ladder banks run $10k-$121k
+  where the same agent banks a tight $55-60k locally against a mirror. v15's
+  first three games already contain a $10,784 game; v14's recent losses bank
+  $36-52k against opponents banking $62-93k. Roughly a third of real games go
+  badly wrong in a way no local game does.
+  The hypothesis worth testing first: **we commit the whole farm on day 0-2, and
+  the shops are not drawn until day 3+.** Our forecast uses the pool average,
+  which is right on average and wrong every specific season — a season drawing
+  four yarn stores and no bakery leaves the strawberry we planted on the prior
+  nearly worthless (measured spread: wool 30-534, carrot 84-570). Look for
+  whether the bad games correlate with an unlucky draw against what we planted,
+  and if so hold planting capacity back to respond to the actual draw rather
+  than spending it all on the prior.
+- **Stranded livestock, ~$5k a game, on half of all seeds.** `lab/checks/
+  validate.py` reports 4 cows + 7 sheep and 4 cows + 6 sheep sitting unplaced in
+  the shed on seeds 1 and 2, while games elsewhere finish with a dozen *empty*
+  pastures. Capital that was bought, never placed, and never earned. The old
+  note below says stranding was accidentally protecting us from crashing wool --
+  that was measured before the demand forecast existed and should be re-tested.
 - **The pool needs a real opponent.** Everything in it is our own lineage, and
   we beat all of it. Reconstruct an archetype from a 3,200-rated replay --
   strawberry+wheat at scale over 13 animals -- or the next tuning round fits

@@ -203,6 +203,8 @@ DEFAULTS = {
     "job_weight_scarcity": 0.0,
     # Only fertilise/care for what the town is actually draining. 0.0 = any.
     "fertilize_demand_floor": 0.0,
+    "fertilize_max_quadrants": 99,
+    "fertilize_last_day": 99,
     "care_demand_floor": 0.0,
     # Furthest tile worth planting, measured from the nearest shed access.
     "max_plant_radius": 99,
@@ -1044,6 +1046,14 @@ def build_jobs(obs, farm, private, params, depots, day, hours_left, endgame, inf
                 # units into a market already at the floor. Spend the turn only
                 # where the town is draining what it would grow.
                 if (coverage or {}).get(crop, 1.0) < params["fertilize_demand_floor"]:
+                    edge = 1e9
+                # Fertilising is an intensive-margin move: it buys more from a
+                # tile instead of buying another tile. That is only the better
+                # trade while land is what we are short of -- one quadrant, more
+                # hands than ground. Once the farm spans three quadrants the same
+                # turn is worth more spent watering ground we already broke.
+                if (len(farm["unlocked_quadrants"]) > params["fertilize_max_quadrants"]
+                        or day > params["fertilize_last_day"]):
                     edge = 1e9
                 if saturated:
                     # Nothing else to do with the dollar: the farm is full,

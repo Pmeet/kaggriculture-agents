@@ -498,6 +498,34 @@ opening is bad".
 
 Use this before concluding anything about a strategy change.
 
+## Layer 1: the first parameter that is a function, not a number
+
+`work_reserve` and `animal_reserve` held back a flat $950. That is two different
+policies depending on how income arrives, and nobody noticed because only one
+kind of income had ever been tested. After a melon harvest drops $5.6k in a day,
+holding $950 costs nothing. In an economy earning $300 a day it means the farm
+can never assemble a cow plus its reserve at one moment, so it buys none.
+
+Measured on the wheat opening, day 20 held **6 animals against the opponent's
+14**; the same farm reserving proportionally holds **12**, and stranded
+livestock -- 5 to 13 animals stuck in the shed for the whole game -- drops to
+zero, because we stop buying stock we cannot place.
+
+`scaled_reserve` caps the flat figure at a share of the bank, so a rich farm is
+unchanged:
+
+| | melon economy | wheat economy |
+| --- | --- | --- |
+| flat 450/500 | **-$697** | -$28,642 |
+| flat 100/100 | -$8,011 | **-$4,995** |
+| `reserve_frac` 0.25 | -$3,913 | **-$4,011** |
+
+The wheat opening goes from -$28,509 to -$4,011, and by phase from
+-$32,353 cumulative to -$8,000, now *winning* days 20-30 by $2,414.
+
+This is the shape every remaining parameter should be checked for: a constant
+that was fitted under one regime and silently encodes it.
+
 ## Layer 2 first cut: pricing a tile against the day it sells
 
 `crop_profit` credits a crop the *whole* season's town demand and charges it the

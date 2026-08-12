@@ -100,6 +100,9 @@ DEFAULTS = {
     # --- Capital. One budget, spent in payback order; nothing is bought that
     # cannot also be worked, and seeds never eat the reserve.
     "work_reserve": 450,
+    # Reserve as a share of the bank, capped at the flat figures above. 0
+    # keeps the flat rule. See `scaled_reserve`.
+    "reserve_frac": 0.25,
     "seed_budget_frac": 0.45,
     "expand_when_empty": 14,
     "cash_comfort": 2500.0,
@@ -882,6 +885,24 @@ def cull_candidates(info, params, day, market_inventory, pull=None, coverage=Non
     return culls
 
 
+def scaled_reserve(amount, money, params):
+    """Working capital to hold back, as a share of what we actually have.
+
+    A flat reserve is two different policies depending on how income arrives.
+    After a melon harvest lands $5.6k in one day, holding $950 back is prudent
+    and costs nothing. In an economy that earns $300 a day, the same $950 means
+    the farm can never assemble the price of a cow plus its reserve at one
+    time, so it buys none: measured, a flat 450/500 leaves the wheat opening
+    with 6 animals on day 20 where the same farm reserving proportionally has
+    13, and the whole difference is a rule that was written for a lump.
+
+    Capped at the flat figure, so a rich farm behaves exactly as before.
+    """
+    if params["reserve_frac"] <= 0:
+        return amount
+    return min(amount, max(0.0, money) * params["reserve_frac"])
+
+
 def livestock_plan(params, info, shed, day, money, market_inventory, carried=None,
                    pull=None, coverage=None):
     """Pens to build and animals to buy, kept consistent with each other.
@@ -916,7 +937,9 @@ def livestock_plan(params, info, shed, day, money, market_inventory, carried=Non
         pens.extend([kind] * max(0, homeless - have_free))
         spare[kind] = max(0, have_free - homeless)
 
-    budget = max(0.0, money - params["work_reserve"] - params["animal_reserve"])
+    reserve = (scaled_reserve(params["work_reserve"], money, params)
+               + scaled_reserve(params["animal_reserve"], money, params))
+    budget = max(0.0, money - reserve)
     purchases = []
     if day <= params["animal_last_day"]:
         owned_all = {}
@@ -1611,7 +1634,7 @@ def plan_market(obs, farm, private, params, shed, day, hour, step, info,
         cost = LAND_PRICES[extra]
         room = (len(info["empty"]) <= params["expand_when_empty"]
                 or budget - cost >= params["expand_when_rich"])
-        if budget - cost >= params["work_reserve"] and room:
+        if budget - cost >= scaled_reserve(params["work_reserve"], budget, params) and room:
             orders.append(["BUY_LAND"])
             return budget - cost, slots - 1, True
         return budget, slots, False

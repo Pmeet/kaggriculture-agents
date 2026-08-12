@@ -75,17 +75,56 @@ looks like.
 
 ### Live submissions
 
-**v15 (55450849), submitted 2026-08-12 06:31 UTC** — per-tile marginal pricing
-plus the demand forecast, commit `04e3061`; frozen at `agents/baseline_j.py`.
-Validated COMPLETE, seeded at 600, and 709 after three games (2W-1L).
+Read 2026-08-12 07:55 UTC. **v15 is working on the ladder**: 784.4 after 20
+games (11W-9L) against opponents averaging 771, above v14's 722.3 after 48
+(24W-24L) against a weaker 729. The local +$11.9k held-out margin translated.
 
-v14 (55428714) is the other active slot, at **715 after 47 games, 23W-24L**.
-It is our only converged rating, so **do not submit a third agent until v15 has
-played enough games to compare** — a third upload drops v14 out of tracking and
-leaves two unproven agents.
+- **v16 (55452371)** — melon cap 20 plus opponent-supply-aware planting,
+  commit `3d0b0c7`. Validated, seeded 600.
+- **v15 (55450849)** — frozen at `agents/baseline_j.py`, and the control v16 is
+  being measured against.
 
-The melon-cap commit after v15 is *not* submitted; it is worth +$4,283 held out
-and is the natural v16 once v15's rating settles.
+v14 has now dropped out of active tracking. Three slots left today.
+
+## Melon is the capital pump, not a crop
+
+This is the finding that governs the whole opening, and it is the reason four
+separate attempts to diversify have each cost $25-48k a game.
+
+Melon is a *bad product*: no shop demands it, the town drains exactly 30 units a
+season, and selling a harvest visibly craters the price from $250 to $100. All
+of that is true and none of it matters. Melon's job is to convert ten days of
+otherwise-idle opening land into **one lump of cash on day 11**, while livestock
+still has 18 days left to compound it.
+
+| | 20 melon tiles | 16 melon tiles |
+| --- | --- | --- |
+| bank, day 11 | **$5,632** | $3,805 |
+| herd, day 12 | 7 cows, 7 sheep | 4 cows, 0 sheep |
+| herd, day 20 | 10 cows, 7 sheep | 6 cows, 2 sheep |
+| final bank | $88,921 | $49,253 |
+
+$1,800 less on day 11 is the difference between buying the herd outright and
+buying one cow, and the farm never catches up, because `animal_last_day` and the
+compounding window do not move. Everything that trims melon below ~19 tiles hits
+this cliff regardless of *why* it trimmed:
+
+| lever | held-out margin |
+| --- | --- |
+| `melon_max_tiles` 16 | -$39,118 |
+| `max_crop_share` 0.45 | -$49,575 |
+| `demand_floor` 0.85 (a 15% tilt) | -$34,307 |
+| `early_cash_tiles` 6 | -$10,364 |
+
+**So diversifying the opening needs another source of day-11 capital first.**
+That is the actual open problem, not a better argument for diversifying. Until
+one exists, the levers stay switched off in `DEFAULTS` with their numbers.
+
+One related trap: demand coverage must never touch livestock. Tilting toward the
+best-covered product concentrated the herd into 14 cows and 2 sheep instead of
+7 and 7, costing $37k -- milk and wool are both thin markets that floor after
+40-60 surplus units, so spreading across two beats picking the better one.
+`animal_profit` already prices each animal against its own product's supply.
 
 ## The engine was rebalanced -- pin 1.32.6
 

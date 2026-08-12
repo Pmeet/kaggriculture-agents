@@ -131,7 +131,12 @@ DEFAULTS = {
     "action_cost_floor": 9.0,
     "action_cost_cap": 70.0,
     "action_cost_scale": 0.5,
-    "melon_max_tiles": 26,
+    # At 26 this cap never bound: 32 and 40 played byte-identical games, because
+    # melon only ever wanted the ~23 tiles of the opening quadrant. It starts
+    # doing work at 20, where the three tiles it frees go to strawberry -- worth
+    # +$4,283 paired margin on held-out seeds and a clean 1.000/1.000 gauntlet.
+    # Do not lower it further: 18 measures -$1,449 and 16 loses every game.
+    "melon_max_tiles": 20,
     # "marginal" prices each empty tile against the tiles committed before it,
     # so a crop stops winning tiles once its own supply has crushed the price.
     # "single" is the old behaviour: one crop wins and takes every tile.

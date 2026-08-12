@@ -75,16 +75,20 @@ looks like.
 
 ### Live submissions
 
-Read 2026-08-12 07:55 UTC. **v15 is working on the ladder**: 784.4 after 20
-games (11W-9L) against opponents averaging 771, above v14's 722.3 after 48
-(24W-24L) against a weaker 729. The local +$11.9k held-out margin translated.
+Read 2026-08-12 10:07 UTC. Two slots left today.
 
-- **v16 (55452371)** — melon cap 20 plus opponent-supply-aware planting,
-  commit `3d0b0c7`. Validated, seeded 600.
-- **v15 (55450849)** — frozen at `agents/baseline_j.py`, and the control v16 is
-  being measured against.
+- **v17 (55455741)** — shop-led economy: wheat opening, melon deferred to day 12,
+  `plant_commitment_cost` 8. Validated, seeded 600. Submitted at the user's
+  direction *knowing it measures -$29,476 held out*, to test whether a local
+  mirror can fairly judge an opening built for shop demand.
+- **v16 (55452371)** — melon cap 20 + opponent-supply-aware planting. 721.6 and
+  climbing from 600.
+- v15 (753.5 over ~20 games) has dropped out of active tracking; it is frozen at
+  `agents/baseline_j.py` and remains the control every A/B is run against.
 
-v14 has now dropped out of active tracking. Three slots left today.
+**If v17 rates below ~650, restore v15 from `agents/baseline_j.py`.** It is the
+strongest agent measured to date and only two uploads separate it from being
+active again.
 
 ## Melon is the capital pump, not a crop
 
@@ -119,6 +123,25 @@ this cliff regardless of *why* it trimmed:
 **So diversifying the opening needs another source of day-11 capital first.**
 That is the actual open problem, not a better argument for diversifying. Until
 one exists, the levers stay switched off in `DEFAULTS` with their numbers.
+
+### Animals can be removed after all
+
+An earlier note here said placed animals are stuck. They are not, and the
+difference matters: two consecutive missed feeds and `_daily_refresh_animals`
+deletes the animal **and leaves the pasture or coop standing**. Starving an
+animal is therefore a deliberate two-day way to recycle a pen into one whose
+product the shops actually want. Not yet implemented; it is the obvious answer
+to the stranded-livestock waste and to a herd built for demand that never came.
+
+### The flat planting charge forbids short crops
+
+`plant_commitment_cost` charges a fixed amount per follow-up job a planting
+commits to. At 42 that is $252 against wheat's $260 cycle, so a wheat tile was
+worth $8 while walking one step cost $9 -- short-cycle crops were unplantable,
+and no measurement showed it because melon carried the economy and never needed
+them. At 8 wheat sales go from 28 a game to 312. Note it measures *worse* in the
+melon economy (bank up $5k, margin down $7k), so it belongs with the shop-led
+opening, not on its own.
 
 One related trap: demand coverage must never touch livestock. Tilting toward the
 best-covered product concentrated the herd into 14 cows and 2 sheep instead of

@@ -384,6 +384,38 @@ economy can pay for. Measured at 26 it costs -$53,648 and the bank falls from
 $54,096 to $30,594. Weeds are the same story from the other side: `dig_fraction`
 1.0 measures -$679, because the actions are worth more elsewhere.
 
+## Labour capacity is real, and pricing it a third time does not help
+
+`labour_saturation` reports jobs owed over jobs reachable, and it confirms what
+a replay looks like: the farm sits at **0.98-1.34 from day 16 onward** while
+holding $14k-$49k, and the weed count spikes to 11-13 in exactly that window. So
+the farm genuinely cannot work what it owns, and keeps buying more.
+
+Gating the budget on it -- stop buying seed, animals and land above the slack
+line -- measures neutral to negative in every form tried, on the *healthy* v16
+economy (the v17 opening is too weak to read a second effect through):
+
+| variant | held-out margin | score |
+| --- | --- | --- |
+| no gate | -$697 | 0.475 |
+| hard gate at 1.00 | -$1,873 | 0.400 |
+| hard gate at 1.05 | -$2,730 | 0.338 |
+| labour priced by scarcity, k=1 | +$5 | 0.512 |
+| labour priced by scarcity, k=3 | -$1,680 | 0.400 |
+| fertilise once saturated | -$2,384 | 0.375 |
+
+The reason is that labour is already charged for twice. `crop_value` divides a
+crop by the jobs its cycle will consume (`job_weight`), which is the buying-side
+price; `marginal_action_cost` prices every walk at the value of the job dropped
+for want of capacity, which is the routing-side price. A third capacity signal
+double-counts what those two already say, and a hard gate replaces a smooth
+price with a cliff. Note a 24-seed run showed the gate at +$798 and 40 seeds
+turned it to -$1,873 -- trap 1 in the list below, caught by widening the sample.
+
+Kept as `capacity_slack` / `job_weight_scarcity`, both off, because the
+saturation number itself is the useful part: it is the honest way to see whether
+a change bought work the farm can actually do.
+
 ## Settled, so nobody re-litigates them
 
 - **The melon opening is correct.** It looks wrong in a replay -- 23 melon

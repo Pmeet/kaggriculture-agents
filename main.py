@@ -196,6 +196,12 @@ DEFAULTS = {
     # Buying land just because the bank is full measures -$3,486. Off.
     "expand_when_rich": 1e9,
     "land_before_livestock": False,
+    # Jobs-owed / jobs-reachable above which the budget stops buying more to
+    # manage and starts buying yield on what it already manages. Off until
+    # measured.
+    "capacity_slack": 1e9,
+    "job_weight_scarcity": 0.0,
+    "fertilize_saturated_edge": 1e9,
     # Weight on demand from shops that have not unlocked yet. 1.0 is "believe
     # the pool average", and it is also what measures best: +$13.4k paired
     # margin on held-out seeds (0.896) against the agent without it. Both
@@ -900,6 +906,16 @@ def livestock_plan(params, info, shed, day, money, market_inventory, carried=Non
 
 def build_jobs(obs, farm, private, params, depots, day, hours_left, endgame, info,
                money, carried, pull, coverage=None):
+    saturation = labour_saturation(farm, info, params)
+    saturated = saturation > params["capacity_slack"]
+    # Labour is already charged for on the buying side -- `crop_value` divides by
+    # the jobs a planting will consume -- but at a flat rate, as though a hand
+    # were equally available on day 2 and day 20. Letting that rate rise with
+    # scarcity is the same idea as a hard spending gate without the cliff: a tile
+    # gets dearer to commit to exactly as the farm runs out of people to work it.
+    if params["job_weight_scarcity"] > 0.0 and saturation > 1.0:
+        params = dict(params)
+        params["job_weight"] *= 1.0 + params["job_weight_scarcity"] * (saturation - 1.0)
     market_inventory = obs["market"]["inventory"]
     seeds = private["seeds"]
     shed = private["shed"]
@@ -1006,7 +1022,12 @@ def build_jobs(obs, farm, private, params, depots, day, hours_left, endgame, inf
             gained = fertilize_gain(crop, tile, day)
             if gained > 0:
                 worth = gained * unit_price - marginal_price("FERTILIZER")
-                if worth > params["fertilize_min_edge"] * marginal_price("FERTILIZER"):
+                edge = params["fertilize_min_edge"]
+                if saturated:
+                    # Nothing else to do with the dollar: the farm is full,
+                    # so more yield per tile is the only margin left.
+                    edge = min(edge, params["fertilize_saturated_edge"])
+                if worth > edge * marginal_price("FERTILIZER"):
                     add(pos, ["FERTILIZE"], worth, "FERTILIZE", need="FERTILIZER")
 
         # An ongoing crop only banks the fertilizer bonus on a day it is also
@@ -1425,6 +1446,24 @@ def day_workload(info, params):
     )
 
 
+def labour_saturation(farm, info, params):
+    """How much of the work the farm already owes it can actually reach.
+
+    Every purchase so far has been priced on its own merits -- a cow returns
+    $415 a day, a tile of strawberry returns $1,140 -- and none of them asked
+    whether anyone would be free to feed or water the thing once bought. Past
+    the point where a day's jobs exceed a day's actions, another seed buys work
+    that will not get done, and the same dollars spent on fertiliser, a hand or
+    a weed cleared raise the yield of tiles already under management instead.
+
+    Returns jobs owed divided by jobs reachable: above 1.0 the farm is
+    over-committed.
+    """
+    crew = 1 + len(farm["hands"])
+    reachable = crew * TURNS_PER_DAY / max(1.0, params["move_factor"])
+    return day_workload(info, params) / max(1.0, reachable)
+
+
 def plan_hiring(farm, params, hour, hours_left, workload, money, slots, endgame):
     """Hire against the day's workload, and always take the near-free hands."""
     if endgame or hour not in params["hire_hours"] or hours_left <= 3:
@@ -1506,7 +1545,12 @@ def plan_market(obs, farm, private, params, shed, day, hour, step, info,
             return budget - cost, slots - 1, True
         return budget, slots, False
 
-    if params["land_before_livestock"]:
+    # Buying more to manage while the farm cannot manage what it has is how a
+    # farm ends the season with unwatered tiles and unfed animals. Past the
+    # slack line the budget stops buying tiles and starts buying yield.
+    expanding = labour_saturation(farm, info, params) <= params["capacity_slack"]
+
+    if params["land_before_livestock"] and expanding:
         budget, slots, _bought = buy_land(budget, slots)
 
     # ---- Livestock next. A cared-for cow returns roughly $415 a day against a
@@ -1514,7 +1558,7 @@ def plan_market(obs, farm, private, params, shed, day, hour, step, info,
     # every day it is bought late is a day of production gone. Ladder replays
     # bear this out: the agent that beat us ran ~200 animal-days to our ~60,
     # with fewer crops and no weeding at all.
-    if slots > 0 and not endgame:
+    if slots > 0 and not endgame and expanding:
         _pens, purchases = livestock_plan(
             params, info, shed, day, budget, market_inventory, carried, pull, coverage
         )
@@ -1530,7 +1574,7 @@ def plan_market(obs, farm, private, params, shed, day, hour, step, info,
     # let successive turns fill the rest in. One order a turn keeps the market
     # slots that sells and livestock need, and buying the largest shortfall
     # first means the crop actually blocking a PLANT gets unblocked first.
-    if slots > 0 and not endgame and seed_want:
+    if slots > 0 and not endgame and seed_want and expanding:
         deficits = []
         for rank, (crop, tiles) in enumerate(seed_want.items()):
             short = min(tiles, params["seed_buffer"]) - private["seeds"].get(crop, 0)
@@ -1547,7 +1591,7 @@ def plan_market(obs, farm, private, params, shed, day, hour, step, info,
 
     # ---- Land. Twenty-five tiles for $1k/$2k/$4k pays back within days, but
     # only once the tiles we already hold are full.
-    if not params["land_before_livestock"]:
+    if not params["land_before_livestock"] and expanding:
         budget, slots, _bought = buy_land(budget, slots)
 
     # Market orders resolve by index, and each player's order i is quoted against

@@ -134,6 +134,11 @@ DEFAULTS = {
     "action_cost_floor": 9.0,
     "action_cost_cap": 70.0,
     "action_cost_scale": 0.5,
+    # "optimal" solves the unit-to-job assignment jointly instead of taking
+    # the best pair then the next best. `assignment_fanout` caps how many jobs
+    # enter the matrix, as a multiple of the crew size.
+    "assignment": "greedy",
+    "assignment_fanout": 6,
     # At 26 this cap never bound: 32 and 40 played byte-identical games, because
     # melon only ever wanted the ~23 tiles of the opening quadrant. It starts
     # doing work at 20, where the three tiles it frees go to strawberry -- worth
@@ -1320,6 +1325,136 @@ def marginal_action_cost(jobs, units, hours_left, params):
     return max(params["action_cost_floor"], min(params["action_cost_cap"], marginal))
 
 
+def _hungarian(cost, n_rows, n_cols):
+    """Min-cost assignment (Jonker-Volgenant with potentials), rows <= cols.
+
+    Greedy matching takes the best (unit, job) pair, then the best remaining,
+    and so on. That is wrong whenever two units want the same job: the loser is
+    sent to whatever is left rather than to the job it was uniquely best at.
+    Solving the assignment jointly is the standard fix and is never worse.
+
+    Returns a list mapping each row to a column, or -1.
+    """
+    INF = float("inf")
+    u = [0.0] * (n_rows + 1)
+    v = [0.0] * (n_cols + 1)
+    p = [0] * (n_cols + 1)
+    way = [0] * (n_cols + 1)
+    for i in range(1, n_rows + 1):
+        p[0] = i
+        j0 = 0
+        minv = [INF] * (n_cols + 1)
+        used = [False] * (n_cols + 1)
+        while True:
+            used[j0] = True
+            i0 = p[j0]
+            delta = INF
+            j1 = -1
+            row = cost[i0 - 1]
+            for j in range(1, n_cols + 1):
+                if used[j]:
+                    continue
+                cur = row[j - 1] - u[i0] - v[j]
+                if cur < minv[j]:
+                    minv[j] = cur
+                    way[j] = j0
+                if minv[j] < delta:
+                    delta = minv[j]
+                    j1 = j
+            if j1 < 0:
+                break
+            for j in range(n_cols + 1):
+                if used[j]:
+                    u[p[j]] += delta
+                    v[j] -= delta
+                else:
+                    minv[j] -= delta
+            j0 = j1
+            if p[j0] == 0:
+                break
+        while j0:
+            j1 = way[j0]
+            p[j0] = p[j1]
+            j0 = j1
+    out = [-1] * n_rows
+    for j in range(1, n_cols + 1):
+        if p[j] > 0:
+            out[p[j] - 1] = j - 1
+    return out
+
+
+def _optimal_pairs(pairs, n_units, params, jobs, seeds, stock, carrying):
+    """Re-order `pairs` so the budget loop below consumes an optimal matching.
+
+    The loop that follows enforces constraints the matching cannot see -- seed
+    stock per crop, shed stock for carried items -- so rather than replace it,
+    the optimal assignment is fed to it first, with everything else left in
+    place as fallback. It therefore degrades to the greedy answer exactly when
+    a budget forces it to.
+    """
+    # The matching is blind to the budgets the caller enforces afterwards -- seed
+    # stock per crop, shed stock for carried items -- so a unit matched to a job
+    # it cannot supply is skipped there and ends the turn idle. Measured, that
+    # cost ~785 idle unit-turns a game. Trimming the columns to what the budgets
+    # can actually cover makes the matching feasible by construction.
+    quota = {}
+    for ji, job in enumerate(jobs):
+        if job["kind"] == "PLANT":
+            quota[ji] = ("crop", job["crop"])
+        elif job.get("need"):
+            quota[ji] = ("need", job["need"])
+    room = {("crop", crop): count for crop, count in seeds.items()}
+    for item, count in stock.items():
+        room[("need", item)] = count + carrying.get(item, 0)
+
+    # Only the strongest few jobs per unit can ever be reached; capping keeps
+    # the matrix small enough that solving it stays far inside the turn budget.
+    limit = max(n_units * params["assignment_fanout"], n_units)
+    columns = []
+    seen = set()
+    used = {}
+    for _score, _negdist, _ui, ji in pairs:
+        if ji in seen:
+            continue
+        key = quota.get(ji)
+        if key is not None:
+            if used.get(key, 0) >= room.get(key, 0):
+                continue
+            used[key] = used.get(key, 0) + 1
+        seen.add(ji)
+        columns.append(ji)
+        if len(columns) >= limit:
+            break
+    index = {ji: c for c, ji in enumerate(columns)}
+    n_cols = len(columns)
+
+    # The solver finds a minimum-cost *perfect* matching, but what we want is a
+    # maximum-value matching that may leave units out -- a unit with nothing
+    # worth doing should walk toward work, not be forced onto a job. Encoding
+    # "forbidden" as a huge cost gets that wrong in a way that is easy to miss:
+    # it makes the solver minimise the *number* of unmatched units rather than
+    # maximise value, and it quietly returned worse-than-greedy answers on 5% of
+    # turns. One zero-cost dummy column per unit is the exact reduction: a unit
+    # can decline without occupying a column another unit wanted.
+    total_cols = n_cols + n_units
+    cost = [[0.0] * total_cols for _ in range(n_units)]
+    lookup = {}
+    for score, negdist, ui, ji in pairs:
+        c = index.get(ji)
+        if c is None or score <= 0 or (ui, c) in lookup:
+            continue
+        cost[ui][c] = -score
+        lookup[(ui, c)] = (score, negdist, ui, ji)
+
+    chosen = []
+    for ui, c in enumerate(_hungarian(cost, n_units, total_cols)):
+        if c >= 0 and (ui, c) in lookup:
+            chosen.append(lookup[(ui, c)])
+    chosen.sort(reverse=True)
+    picked = {(p[2], p[3]) for p in chosen}
+    return chosen + [p for p in pairs if (p[2], p[3]) not in picked]
+
+
 def assign_units(units, jobs, depots, hours_left, seeds, params, shed, endgame,
                  shed_total, action_cost, supplies=()):
     """Greedy matching on ``value - distance * action_cost``.
@@ -1349,6 +1484,16 @@ def assign_units(units, jobs, depots, hours_left, seeds, params, shed, endgame,
                 continue
             pairs.append((job["value"] - dist * action_cost, -dist, ui, ji))
     pairs.sort(reverse=True)
+
+    if params["assignment"] == "optimal" and pairs:
+        carrying = {}
+        for _pos, inv in units:
+            for item, count in inv.items():
+                if count > 0:
+                    carrying[item] = carrying.get(item, 0) + count
+        pairs = _optimal_pairs(
+            pairs, len(units), params, jobs, seeds,
+            {item: shed.get(item, 0) for item in pickup_needs}, carrying)
 
     taken_unit = {}
     taken_job = set()

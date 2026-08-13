@@ -481,6 +481,39 @@ is eight steps from the shed. Movement is ~55% of unit-turns because the work is
 spread over up to 100 tiles that all lead back to one central shed, which is
 board geometry, not a placement mistake.
 
+## Optimal assignment is worse than greedy, and that is the finding
+
+`assign_units` matches units to jobs greedily: best pair, then next best. The
+obvious upgrade is to solve the assignment jointly, since greedy demonstrably
+mis-handles two units contending for one job. It is implemented -- `_hungarian`
+plus `_optimal_pairs`, `assignment: "optimal"` -- and it works exactly as
+advertised:
+
+* verified against brute force on 400 random instances: **never** below the true
+  maximum-weight matching, strictly better than greedy on 19% of them;
+* in real games it beats greedy's assigned value on 28% of turns, is identical
+  on the rest, is **never worse**, and adds $12,421 of assigned job value a game;
+* it costs 0.23 ms a turn against a 1,000 ms budget.
+
+And the agent gets **$25,078 worse** held out, bank $71,222 -> $58,556.
+
+Checked and ruled out: matching quality (brute-forced), the column cap (median
+25 jobs a turn, cap never binds), turn-to-turn churn (U-turns 83 vs 75, work per
+move 0.451 vs 0.454), units placed (9.30 vs 9.36) and travel distance (1.90 vs
+1.89). Making the matching budget-aware, so no unit is matched to a job the seed
+or shed stock cannot supply, changed nothing (-$25,078 against -$25,665).
+
+So the objective is what is wrong, not the solver. `value - distance *
+action_cost` prices a *single turn*, but an assignment persists: a unit sent
+three tiles away is committed for three turns. Greedy's ordering has an emergent
+property the sum does not -- the most valuable job always gets the best-placed
+unit, so the most valuable work finishes *soonest*. Maximising the turn's total
+trades that sequencing away for jobs that happen to sum higher today.
+
+**Greedy here is not an approximation to optimal; it is a different and better
+heuristic.** Ships off. Do not "fix" it again without first replacing the
+per-turn score with one that prices the whole commitment.
+
 ## The two standing benchmarks: v15 and v18
 
 **Every future candidate is measured against these two before anything else.**

@@ -481,6 +481,28 @@ is eight steps from the shed. Movement is ~55% of unit-turns because the work is
 spread over up to 100 tiles that all lead back to one central shed, which is
 board geometry, not a placement mistake.
 
+## The two standing benchmarks: v15 and v18
+
+**Every future candidate is measured against these two before anything else.**
+They are the only opponents whose strength is confirmed by the *ladder* rather
+than by us, and they are deliberately two different economies rather than two
+tunings of one:
+
+| | file | peak live rating | economy |
+| --- | --- | --- | --- |
+| **v15** | `agents/baseline_j.py` | 753.5 | melon capital pump, livestock-led |
+| **v18** | `agents/baseline_k.py` | 786.5 | evolved shop-led, wheat opening |
+
+They are `lab.pool.BENCHMARKS`, they head `POOL`, and they are both in
+`SEARCH_POOL` so parameter search optimises against them directly. Beating both
+means beating two distinct ways of playing, not one lineage with a knob moved.
+
+Adding them un-saturated the gauntlet, which is the whole point: MEAN fell from
+0.990 to 0.897 and WORST from 0.938 to 0.500, because for the first time the
+pool contains opponents that are actually our equals. Keep them frozen. Add a
+third only when a new agent holds a **higher live rating** than either -- not
+because it looks better locally.
+
 ## Layer 0: measure phases, not games (`lab/phases.py`)
 
 One number per game cannot distinguish a change that does nothing from one that

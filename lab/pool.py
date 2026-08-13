@@ -28,7 +28,23 @@ def variant(params, name, module="agents.v3"):
 
 
 # Archetypes drawn from real ladder opponents.
-POOL = [
+# The two agents that have held our highest live ratings. Every future
+# candidate is measured against these before anything else: they are the only
+# opponents whose strength is confirmed by the ladder rather than by us.
+#
+#   v15 (baseline_j) -- melon capital-pump economy, peak 753.5
+#   v18 (baseline_k) -- evolved shop-led economy, peak 786.5
+#
+# They are deliberately *different economies*, not two versions of one idea, so
+# beating both means beating two distinct ways of playing rather than one
+# lineage with a tuning change. Keep them frozen; add a third only when a new
+# agent holds a higher live rating than either.
+BENCHMARKS = [
+    {"module": "agents.baseline_j", "attr": "agent", "name": "v15-melon"},
+    {"module": "agents.baseline_k", "attr": "agent", "name": "v18-shopled"},
+]
+
+POOL = BENCHMARKS + [
     "starter",
     {"module": "agents.v1", "attr": "agent", "name": "crop-only"},
     {"module": "agents.baseline_a", "attr": "agent", "name": "baseline_a"},
@@ -74,10 +90,9 @@ if __name__ == "__main__":
     gauntlet(candidate, seeds)
 
 
-# A cheaper, deliberately diverse subset for parameter search.
-SEARCH_POOL = [
-    POOL[3],   # baseline_b -- the current promoted agent
-    POOL[4],   # big-herd-mixed
-    POOL[6],   # cow-goose
-    POOL[7],   # crop-heavy
+# A cheaper, deliberately diverse subset for parameter search: both ladder-proven
+# benchmarks, plus two archetypes that play unlike either of them.
+SEARCH_POOL = BENCHMARKS + [
+    next(p for p in POOL if isinstance(p, dict) and p.get("name") == "big-herd-mixed"),
+    next(p for p in POOL if isinstance(p, dict) and p.get("name") == "crop-heavy"),
 ]

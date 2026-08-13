@@ -481,6 +481,41 @@ is eight steps from the shed. Movement is ~55% of unit-turns because the work is
 spread over up to 100 tiles that all lead back to one central shed, which is
 board geometry, not a placement mistake.
 
+## The assignment strategy should change as the farm grows
+
+Four strategies live behind `assignment_plan`, one letter per quadrant owned
+(`ASSIGNMENT_CODES`), each a re-ordering of the same candidate pairs so the seed
+and shed budgets stay in one place:
+
+| code | strategy |
+| --- | --- |
+| `g` | greedy -- best net value, value and distance traded off |
+| `n` | nearest -- closest work first, whatever it pays |
+| `j` | jobfirst -- most valuable *job* first, nearest free unit |
+| `o` | optimal -- maximise the turn's total assigned value |
+
+Held out against both benchmarks, run statically (mean margin):
+
+| plan | margin | |
+| --- | --- | --- |
+| `gggg` greedy | +$1,081 | |
+| `nnnn` nearest | -$5,873 | |
+| `oooo` optimal | -$22,667 | |
+| `jjjj` jobfirst | -$33,822 | worst |
+
+`jobfirst` losing hardest kills the theory that greedy wins by giving valuable
+jobs the best unit -- the *trade-off* is what earns, not the ranking.
+
+**Switching by quadrant count beats any of them.** `ggnn` -- greedy while the
+farm is one or two quadrants, nearest once it spans three or four -- measures
+**+$4,408 against v15 and +$4,722 against v18** over 80 games a side, against
++$2,161/+$0 for greedy throughout. A dense farm rewards choosing the best job; a
+sprawling one rewards not walking, and movement is 55% of every unit-turn.
+
+`gnnn` scores a higher mean (+$7,395) but almost all of it is v18 (+$14,640 to
+v15's +$149). With two benchmarks standing for two economies, beating both is
+worth more than beating one twice -- which is the reason for having two.
+
 ## Optimal assignment is worse than greedy, and that is the finding
 
 `assign_units` matches units to jobs greedily: best pair, then next best. The

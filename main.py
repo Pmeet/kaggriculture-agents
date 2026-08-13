@@ -138,6 +138,14 @@ DEFAULTS = {
     # the best pair then the next best. `assignment_fanout` caps how many jobs
     # enter the matrix, as a multiple of the crew size.
     "assignment": "greedy",
+    # One letter per quadrant owned, from ASSIGNMENT_CODES. "" = static.
+    # "ggnn": rank by net value while the farm is one or two quadrants, then by
+    # proximity once it spans three or four. Measured against both benchmarks
+    # over 80 games a side: +$4,408 against v15 and +$4,722 against v18, from
+    # +$2,161/+$0 for greedy throughout. A dense farm rewards choosing the
+    # best job; a sprawling one rewards not walking, and movement is already
+    # 55% of every unit-turn.
+    "assignment_plan": "ggnn",
     "assignment_fanout": 6,
     # At 26 this cap never bound: 32 and 40 played byte-identical games, because
     # melon only ever wanted the ~23 tiles of the opening quadrant. It starts
@@ -1455,8 +1463,35 @@ def _optimal_pairs(pairs, n_units, params, jobs, seeds, stock, carrying):
     return chosen + [p for p in pairs if (p[2], p[3]) not in picked]
 
 
+ASSIGNMENT_CODES = {"g": "greedy", "o": "optimal", "n": "nearest", "j": "jobfirst"}
+
+
+def _order_pairs(mode, pairs, jobs, n_units, params, seeds, stock, carrying):
+    """Decide which (unit, job) pairs the budget loop should consider first.
+
+    Every strategy here is a *re-ordering* of the same candidate pairs, so the
+    seed and shed budgets below stay in one place and cannot drift apart.
+
+    * ``greedy``   -- best net score first. Value and distance traded off once.
+    * ``jobfirst`` -- most valuable *job* first, given the nearest free unit.
+      Same idea as greedy but with the trade-off refused: it never lets a
+      distant high-value job lose to a near cheap one. This is the shape that
+      the optimal-assignment experiment implied was doing the real work.
+    * ``nearest``  -- closest work first, whatever it is worth. Minimises
+      walking, which is 55% of unit-turns.
+    * ``optimal``  -- maximise the turn's total assigned value.
+    """
+    if mode == "optimal":
+        return _optimal_pairs(pairs, n_units, params, jobs, seeds, stock, carrying)
+    if mode == "jobfirst":
+        return sorted(pairs, key=lambda p: (-jobs[p[3]]["value"], -p[1], p[2]))
+    if mode == "nearest":
+        return sorted(pairs, key=lambda p: (-p[1], -p[0], p[2]))
+    return pairs
+
+
 def assign_units(units, jobs, depots, hours_left, seeds, params, shed, endgame,
-                 shed_total, action_cost, supplies=()):
+                 shed_total, action_cost, supplies=(), quadrants=1):
     """Greedy matching on ``value - distance * action_cost``.
 
     Pricing a walk at its real opportunity cost keeps units working the tile in
@@ -1485,14 +1520,22 @@ def assign_units(units, jobs, depots, hours_left, seeds, params, shed, endgame,
             pairs.append((job["value"] - dist * action_cost, -dist, ui, ji))
     pairs.sort(reverse=True)
 
-    if params["assignment"] == "optimal" and pairs:
+    # Which strategy to use can depend on the state of the farm: one quadrant of
+    # work is a different problem from four. `assignment_plan` is one letter per
+    # quadrant owned, so "gggg" is always greedy and "gjjo" switches as the farm
+    # grows. Empty falls back to the single `assignment` setting.
+    mode = params["assignment"]
+    plan = params["assignment_plan"]
+    if plan:
+        mode = ASSIGNMENT_CODES[plan[min(max(quadrants, 1), len(plan)) - 1]]
+    if mode != "greedy" and pairs:
         carrying = {}
         for _pos, inv in units:
             for item, count in inv.items():
                 if count > 0:
                     carrying[item] = carrying.get(item, 0) + count
-        pairs = _optimal_pairs(
-            pairs, len(units), params, jobs, seeds,
+        pairs = _order_pairs(
+            mode, pairs, jobs, len(units), params, seeds,
             {item: shed.get(item, 0) for item in pickup_needs}, carrying)
 
     taken_unit = {}
@@ -2000,6 +2043,7 @@ def _play(obs, params):
         unit_actions = assign_units(
             units, jobs, depots, hours_left, private["seeds"], params,
             shed, endgame, shed_total, action_cost, supplies,
+            len(farm["unlocked_quadrants"]),
         )
 
     # The unit phase runs before the market phase, so anything a hand is about

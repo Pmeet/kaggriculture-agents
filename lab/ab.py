@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import statistics
 import sys
 import warnings
 
@@ -33,7 +34,8 @@ def evaluate(module, params, opponent, seeds, workers):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--module", default="main")
-    parser.add_argument("--opponent", default="agents.baseline_i:agent")
+    parser.add_argument("--opponent", default="agents.baseline_j:agent",
+                        help="comma-separated; 'benchmarks' = v15 and v18")
     parser.add_argument("--seeds", type=int, default=24)
     parser.add_argument("--workers", type=int, default=16)
     parser.add_argument("--variant", action="append", default=[],
@@ -45,19 +47,31 @@ def main():
     search = range(1, args.seeds + 1)
     holdout = range(1001, 1001 + args.seeds)
 
-    print(f"{args.module} vs {args.opponent}  "
+    if args.opponent == "benchmarks":
+        from lab.pool import BENCHMARKS
+        opponents = list(BENCHMARKS)
+    else:
+        opponents = [o for o in args.opponent.split(",") if o]
+    labels = [o["name"] if isinstance(o, dict) else o for o in opponents]
+
+    print(f"{args.module} vs {', '.join(labels)}  "
           f"{args.seeds} seeds x 2 seats, held out on {args.seeds} more")
     for spec in args.variant:
         name, _, blob = spec.partition(":")
-        overrides = json.loads(blob or "{}")
         params = dict(module.DEFAULTS)
-        params.update(overrides)
-        sr, sm = evaluate(args.module, params, args.opponent, search, args.workers)
-        hr, hm = evaluate(args.module, params, args.opponent, holdout, args.workers)
-        flag = "" if sr.clean and hr.clean else "  ISSUES"
-        print(f"{name:<22} search {sr.score:.3f} margin {sm:>+9,.0f}   "
-              f"holdout {hr.score:.3f} margin {hm:>+9,.0f}   "
-              f"bank {sr.mean_bank:>8,.0f}{flag}")
+        params.update(json.loads(blob or "{}"))
+        per = []
+        clean = True
+        for opponent in opponents:
+            sr, sm = evaluate(args.module, params, opponent, search, args.workers)
+            hr, hm = evaluate(args.module, params, opponent, holdout, args.workers)
+            clean = clean and sr.clean and hr.clean
+            per.append((sr.score, sm, hr.score, hm, sr.mean_bank))
+        mean = [statistics.fmean(c) for c in zip(*per)]
+        detail = "  ".join(f"{lab}:{p[3]:>+7,.0f}" for lab, p in zip(labels, per))
+        print(f"{name:<22} search {mean[0]:.3f} margin {mean[1]:>+9,.0f}   "
+              f"holdout {mean[2]:.3f} margin {mean[3]:>+9,.0f}   "
+              f"[{detail}]{'' if clean else '  ISSUES'}")
 
 
 if __name__ == "__main__":

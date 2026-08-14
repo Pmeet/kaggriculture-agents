@@ -45,7 +45,7 @@ SPACE = {
     "target_cows": (4, 22, True),
     "target_sheep": (0, 16, True),
     "target_geese": (0, 10, True),
-    "melon_max_tiles": (6, 30, True),
+    "melon_max_tiles": (12, 28, True),
     "melon_first_day": (0, 20, True),
     "early_cash_tiles": (0, 25, True),
     "early_cash_last_day": (2, 16, True),
@@ -57,7 +57,7 @@ SPACE = {
     "hire_money_frac": (0.04, 0.5, False),
     "work_reserve": (0, 1600, True),
     "animal_reserve": (0, 1200, True),
-    "reserve_frac": (0.0, 0.6, False),
+    "reserve_frac": (0.05, 0.6, False),
     "seed_budget_frac": (0.05, 0.9, False),
     "seed_buffer": (4, 24, True),
     "expand_when_empty": (2, 24, True),
@@ -71,19 +71,33 @@ SPACE = {
     "discount_rate": (0.0, 0.12, False),
     "action_cost_scale": (0.1, 1.5, False),
     "dig_fraction": (0.0, 1.2, False),
-    "build_fraction": (0.2, 2.0, False),
+    "build_fraction": (0.1, 1.5, False),
     "town_pull_weight": (0.1, 2.0, False),
     "future_pull_weight": (0.0, 2.5, False),
     "rival_supply_weight": (0.0, 1.0, False),
     "wheat_buy_max_price": (20, 100, True),
     "feed_buffer_days": (1, 4, True),
     "fertilizer_capture": (0.1, 1.0, False),
+    "max_structures_ahead": (2, 8, True),
+    "build_ahead_cover": (0.5, 1.2, False),
+}
+
+
+# Choices that are not numbers. `assignment_plan` is the obvious one: the letter
+# for each quadrant count interacts with almost every weight, and coordinate
+# descent over numbers alone cannot reach it.
+CATEGORICAL = {
+    "assignment_plan": ["gggg", "ggnn", "ggrr", "grrr", "gnnn", "ggrn", "grrn",
+                        "gnrr", "ggnr", "gggr", "ggng", "rgrr"],
 }
 
 
 def mutate(params, rng, count, scale):
     """Perturb `count` parameters at once, so interacting pairs can move together."""
     trial = dict(params)
+    for key in rng.sample(sorted(CATEGORICAL), len(CATEGORICAL)):
+        if rng.random() < 0.25:
+            trial[key] = rng.choice(CATEGORICAL[key])
     for key in rng.sample(sorted(SPACE), min(count, len(SPACE))):
         low, high, is_int = SPACE[key]
         span = (high - low) * scale
@@ -154,7 +168,7 @@ def main():
                   f"(incumbent {best_mean:+,.0f})")
             continue
         changed = {k: v for k, v in improved.items()
-                   if module.DEFAULTS.get(k) != v and k in SPACE}
+                   if module.DEFAULTS.get(k) != v and (k in SPACE or k in CATEGORICAL)}
         hold_mean, _ = score(args.module, improved, opponents, holdout, args.workers)
         print(f"gen {generation}: search {best_mean:+,.0f}  held-out {hold_mean:+,.0f}"
               f"  {changed}")

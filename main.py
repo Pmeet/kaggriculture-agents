@@ -112,6 +112,7 @@ DEFAULTS = {
     "animal_last_day": 19,
     "animal_reserve": 500,
     "max_structures_ahead": 4,
+    "build_ahead_cover": 1.0,
     # Milk and wool trade near $320 and $250 against $160/$200 bases because
     # the town drains them and nobody supplies them. Eggs cap out near $65, and
     # a goose still costs $300 and a daily wheat, so it loses to a cow outright.
@@ -982,9 +983,25 @@ def livestock_plan(params, info, shed, day, money, market_inventory, carried=Non
                 purchases.append((name, buy))
                 spare[kind] = spare.get(kind, 0) - buy
                 budget -= buy * spec["cost"]
-            # Build ahead only for stock the bank can actually cover.
-            ahead = min(short - buy, int(budget // spec["cost"]))
-            pens.extend([kind] * max(0, ahead))
+            # Build ahead only for stock the bank can actually cover, and charge
+            # the budget for it. Leaving `ahead` uncharged let the same dollars
+            # back a cow pen and a sheep pen in one pass. That is a real
+            # double-count and it is fixed here, but be honest about its size:
+            # it measures *identical*, because the second animal type almost
+            # never reaches this line -- 1,099 of 1,217 calls queue no pen at all.
+            #
+            # `build_ahead_cover` requires the bank to hold a multiple of the
+            # animal's price before committing an action to its pen. It is 1.0
+            # (off) because insisting on a cushion is a disaster: at 1.5 the farm
+            # builds 13 pens a game instead of 47 and loses $34,382. An empty pen
+            # is not waste, it is the option to buy an animal the moment cash
+            # lands, and roughly half of all pens are still empty at the whistle
+            # in the configuration that wins. See the handoff.
+            unit_cost = spec["cost"] * params["build_ahead_cover"]
+            ahead = min(short - buy, int(budget // max(1.0, unit_cost)))
+            if ahead > 0:
+                pens.extend([kind] * ahead)
+                budget -= ahead * spec["cost"]
 
     return pens[: params["max_structures_ahead"]], purchases
 

@@ -481,6 +481,37 @@ is eight steps from the shed. Movement is ~55% of unit-turns because the work is
 spread over up to 100 tiles that all lead back to one central shed, which is
 board geometry, not a placement mistake.
 
+## An empty pasture is an option, not waste
+
+Reported from a replay: a pasture built on day 2 still had no animal on it, with
+the bank empty. True, and more common than it looks -- **roughly half of every
+pen we build is still empty at the final whistle** (47 built across three seeds,
+23 never filled, median 11 turns before an animal arrives).
+
+It is not waste. Requiring the bank to hold the animal's price before committing
+an action to its pen (`build_ahead_cover` 1.5) is the single worst change
+measured on this axis:
+
+| | pens built | never filled | held-out margin |
+| --- | --- | --- | --- |
+| as shipped | 47 | 23 (49%) | **+$7,972** |
+| `build_ahead_cover` 1.5 | **13** | 10 (77%) | **-$34,382** |
+| `max_structures_ahead` 2 | 60 | 32 (53%) | +$6,347 |
+| `max_structures_ahead` 6 / 8 | | | +$7,421 / +$7,560 |
+
+The cushion builds a third as many pens and the herd never forms. A pen standing
+empty is the *option* to buy an animal the turn cash arrives; without one ready,
+the purchase waits for a build first and the compounding window closes. Livestock
+is the dominant income, so that option is worth far more than the tile.
+
+`max_structures_ahead` 4 is already the optimum in both directions.
+
+One real defect was found and fixed here anyway: `budget` was decremented by
+animals bought but not by pens queued ahead, so the same dollars backed a cow pen
+and a sheep pen in one pass. It measures *identical* -- the second animal type
+reaches that line on almost no call -- and is kept because it is correct, not
+because it earned anything.
+
 ## Pricing the commitment, not the turn
 
 `greedy` scores a pair `value - dist * action_cost`: a toll for walking, then a

@@ -481,6 +481,29 @@ is eight steps from the shed. Movement is ~55% of unit-turns because the work is
 spread over up to 100 tiles that all lead back to one central shed, which is
 board geometry, not a placement mistake.
 
+## Pricing the commitment, not the turn
+
+`greedy` scores a pair `value - dist * action_cost`: a toll for walking, then a
+comparison of totals. That prices *one turn* of a decision that commits a unit
+for `dist + 1` of them. A $400 job four tiles away and a $340 job next door
+score alike, though the second frees the unit four turns sooner to earn again.
+
+`rate` divides by the commitment -- net value per turn occupied -- and it is the
+best strategy found so far, but only away from the opening:
+
+| plan | held-out score | margin |
+| --- | --- | --- |
+| `rrrr` rate throughout | 0.000 | **-$40,732** |
+| `gggg` greedy throughout | 0.556 | +$1,081 |
+| `ggnn` | 0.703 | +$4,996 |
+| **`ggrr`** | **0.824** | **+$6,031** |
+| `grrr` | 0.785 | +$7,608 |
+
+With the whole farm inside a few tiles the denominator barely varies, so
+dividing by it only amplifies noise -- which is why `rrrr` is catastrophic and
+`ggrr` is the best thing measured. `grrr` banks more; `ggrr` ships because the
+ladder's rating is computed from win and loss, not from margin.
+
 ## The assignment strategy should change as the farm grows
 
 Four strategies live behind `assignment_plan`, one letter per quadrant owned

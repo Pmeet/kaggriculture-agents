@@ -1,4 +1,6 @@
-"""Kaggriculture submission agent: livestock-led economy with economic routing.
+"""Frozen benchmark snapshot (do not edit): commitment-priced assignment, 2026-08-13.
+
+Kaggriculture submission agent: livestock-led economy with economic routing.
 
 What earlier versions taught us, measured on real episodes:
 

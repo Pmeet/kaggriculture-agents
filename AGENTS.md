@@ -118,6 +118,37 @@ what the rating is made of. That gap is now the central open question, and it is
 the same shape as the very first one this project hit: the local pool, even a
 ladder-proven one, is not the field.
 
+## Audit: which gates decide on one factor
+
+A sweep of every parameter used as a threshold, looking for decisions taken on a
+single number. Seven were **pure calendar** -- the day, and nothing else.
+Measured, most turned out to be doing very little, and one was hiding a bug.
+
+| gate | relaxing it | verdict |
+| --- | --- | --- |
+| `hire_hours` (0-3) | **-$23,837** | load-bearing, and for a bad reason |
+| `animal_last_day` 20 -> 26 | -$298, -0.019 | mild but real; keep |
+| `land_last_day` 19 -> 26 | -$577, 0.913 either way | now redundant, the capacity gate supersedes it |
+| `cull_last_day`, `fertilize_last_day` | | inert, features are off |
+
+### The hiring window was hiding a divisor
+
+`needed = ceil(workload * move_factor / hours_left) - have`. As the day runs
+out, that divisor shrinks and the shortfall explodes, so hiring in the evening
+buys hands at the full `fib(n)` price for two hours of work. `hire_hours` was
+not a policy, it was a guard around a formula that misbehaves after noon.
+
+Fixing the cause and pricing the hand instead -- three factors rather than a
+clock: the day's workload with the divisor floored, the fib price of the next
+hand, and the jobs it can still reach before nightfall -- beats the window on
+**both** measures over 96 games a side: **0.948 and +$18,096**, from 0.927 and
++$17,997, and more evenly across the two benchmarks.
+
+Two failed attempts are worth keeping. Removing the window alone costs $23,837.
+Replacing the workload term with a pure value test costs $15,000 -- that swapped
+a two-factor rule for a one-factor one, which is the opposite of the point. The
+gain only appears when workload *and* price are both in the rule.
+
 ## Buy a quadrant only if the hands can work it
 
 Reported from a replay: on day 24 the farm held a cow and eight sheep it had

@@ -118,6 +118,45 @@ what the rating is made of. That gap is now the central open question, and it is
 the same shape as the very first one this project hit: the local pool, even a
 ladder-proven one, is not the field.
 
+## Buy a quadrant only if the hands can work it
+
+Reported from a replay: on day 24 the farm held a cow and eight sheep it had
+never placed, weeds everywhere, and had still opened a fourth quadrant. The
+diagnosis was right -- the land gate asked only "is the farm full and can we
+afford it", never "can we work another one".
+
+`land_policy` adds composable tests (`land_is_worth_working`): `c` capacity,
+`s` stocked, `d` demand. **The threshold is the entire finding**, and getting it
+wrong looks exactly like the idea being wrong:
+
+| capacity slack | held-out score | margin |
+| --- | --- | --- |
+| off (cash only) | 0.831 | +$12,074 |
+| 1.00 -- blocks constantly | 0.594 | +$2,819 |
+| **1.35** | **0.913** | **+$17,686** |
+| 1.50 | 0.869 | +$17,701 |
+| 1.65 -- never binds | 0.831 | +$13,608 |
+
+So: refuse a quadrant while the farm already owes half again more work than its
+hands can reach. Worth +$5,612 and +0.08 win rate over buying on cash alone.
+
+The phase table shows what it buys. Days 10-20 turn **positive for the first
+time**, +$3,371 against -$1,925 before, and at day 20 the farm now holds **three
+quadrants where the opponent holds four** -- and finishes the season with **zero
+weeds against their eight**. Staying smaller means the work actually gets done.
+
+The `s` test (no animal waiting, few empty pens) is also positive at a loose
+setting -- 8 pens, +$13,650 -- but adds nothing on top of `c`. The `d` test
+(unclaimed town demand) never binds below 600 units and is harmful above it.
+
+### Animals in the shed do not run away
+
+Checked in the engine for this: shed contents persist, and our shed never
+approaches its cap. But `_drop_inventories_to_shed` deletes whatever a hand is
+still *carrying* at nightfall when the shed has no room -- `del inv[item]` runs
+whether or not the drop fit. We lose about **one animal a game**, and it is
+starvation of a placed animal (two missed feeds), not the shed.
+
 ## An empty pasture is an option, not waste
 
 Reported from a replay: a pasture built on day 2 still had no animal on it, with

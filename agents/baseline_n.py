@@ -1,4 +1,6 @@
-"""Kaggriculture submission agent: livestock-led economy with economic routing.
+"""Frozen benchmark snapshot (do not edit): capacity-gated expansion, 2026-08-14.
+
+Kaggriculture submission agent: livestock-led economy with economic routing.
 
 What earlier versions taught us, measured on real episodes:
 

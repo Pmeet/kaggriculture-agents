@@ -307,6 +307,29 @@ The wheat opening goes from -$28,509 to -$4,011, and by phase from
 This is the shape every remaining parameter should be checked for: a constant
 that was fitted under one regime and silently encodes it.
 
+## The plan and the weights have to be fitted together
+
+The second joint search settles a question the first could not ask. `evolve.py`
+now mutates `assignment_plan` as a categorical alongside the numbers, and the
+answer it reaches is `grrn` -- the plan rejected a day earlier in favour of
+`ggrr`, on the correct reasoning that `ggrr` won on win rate under the *then*
+parameters.
+
+Under the new weights that reverses, and not marginally:
+
+| | held-out score | margin |
+| --- | --- | --- |
+| previous defaults (`ggrr`) | 0.744 | +$7,972 |
+| **evolved (`grrn`)** | **0.831** | **+$12,074** |
+| evolved, plan forced back to `ggrr` | 0.694 | +$7,786 |
+
+Forcing the old plan onto the new weights costs more than the weights gained.
+The plan and the weights are one decision, and any future sweep of either alone
+is measuring a coupling it cannot see.
+
+`town_pull_weight` fell to 0.1, its lower bound, which is worth re-running with a
+wider floor before trusting it.
+
 ## Layer 3: joint parameter search (`lab/evolve.py`)
 
 `optimize.py` moves one parameter at a time, which is the wrong shape: nearly

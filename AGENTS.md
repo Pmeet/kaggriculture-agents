@@ -88,7 +88,29 @@ $20k, against the same median. That was the largest structural problem on the
 ladder and the proportional reserve plus the commitment-priced assignment
 between them appear to have fixed most of it.
 
-**But read the win rates.** Locally v19 beats v15 by $10,184 and v18 by $6,922
+**The margins did convert; the win rate is a different problem.** Split the
+ladder games by result:
+
+| | winning margin (mean) | losing margin (mean) | decided by < $10k |
+| --- | --- | --- | --- |
+| v19 | **+$22,618** | **-$16,289** | 39% |
+| v18 | +$16,411 | -$20,545 | 39% |
+
+v19 wins bigger *and* loses smaller than v18 on real opponents, so the local
+gains are showing up. What has not moved is the win/loss split, because **39% of
+ladder games are decided by under $10,000**. A general margin improvement
+spreads itself across every game instead of converting the marginal ones, and
+the record is decided by that pile of coin-flips.
+
+So the lever for rating is no longer "bank more" -- it is **win the close games**.
+Endgame precision is where a few thousand dollars changes a result: stranded
+livestock, an unfilled pen, a weed left standing, a last-day sale mistimed. Each
+is worth little on average and could be worth a game in the 39%.
+
+v19 also has only 31 games to v18's 56, and ratings converge slowly, so some of
+the gap is simply youth.
+
+**Also read the win rates.** Locally v19 beats v15 by $10,184 and v18 by $6,922
 over the season, at 0.70-0.82 paired score. On the ladder it plays 0.52 against a
 field averaging 737, barely apart from v18's 0.54. Large local margins are
 converting into very little win rate against real opponents -- and win rate is

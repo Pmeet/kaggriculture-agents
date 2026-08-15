@@ -131,6 +131,39 @@ Measured, most turned out to be doing very little, and one was hiding a bug.
 | `land_last_day` 19 -> 26 | -$577, 0.913 either way | now redundant, the capacity gate supersedes it |
 | `cull_last_day`, `fertilize_last_day` | | inert, features are off |
 
+### Which gates actually fire
+
+Counting how often each threshold is the one blocking, over three full games,
+turns out to be the more useful question than whether a gate is multi-factor. A
+gate that never fires is a decision that is not being made; a gate that fires
+most of the time is doing the steering.
+
+| gate | fires | verdict |
+| --- | --- | --- |
+| `max_hands` 11 | **72%** | genuinely optimal: 9 costs $9.4k, 14 costs $5.1k, 18 costs $9.0k |
+| land affordability | 61% | |
+| `land_capacity_slack` 1.35 | 55% | the new gate, and it earns its place |
+| `land_last_day` 19 | 33% | redundant now, capacity supersedes it |
+| `animal_last_day` 20 | 30% | mild but real, keep |
+| `expand_when_empty` 10 | 26% | inert from 5 to 16, then **-$80,733 at 24** |
+| `melon_max_tiles` 21 | 16% | barely binds; 24 is identical |
+| `carry_limit` 8 | 7% | load-bearing, 14 costs $7.4k |
+| `wheat_buy_max_price` 60 | **0%** | dead parameter, see below |
+
+Two results worth keeping. `max_hands` is *not* made redundant by pricing hands
+-- with the price test alone the workforce runs to about 18 (18 and 26 measure
+identically) and that costs $9k, so the cap adds discipline the price cannot.
+And `expand_when_empty` is a guard rail rather than a tuning knob: flat across
+its whole useful range, catastrophic past it.
+
+### Feed is never the problem
+
+`wheat_buy_max_price` blocked **0 of 491** turns on which feed was wanted: wheat
+trades at $32-36 against a $60 cap. And of the animal-turns spent one missed
+feed from death, **none** had an empty shed -- every single one had wheat on
+hand. Losing about an animal a game is a *logistics* failure, a hand not
+reaching the tile, and no amount of feed budget addresses it.
+
 ### The hiring window was hiding a divisor
 
 `needed = ceil(workload * move_factor / hours_left) - have`. As the day runs

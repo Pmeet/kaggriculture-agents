@@ -267,6 +267,11 @@ DEFAULTS = {
     # honest about the first harvest and blind to every one after it, which
     # unpriced the short-crop opening entirely.
     "ledger_chain": False,
+    # Price livestock on the ledger too. Pricing crops on dated landings while
+    # animals keep the season-total model leaves the two halves of the economy
+    # on different scales, and the PLACE job then loses the labour auction to
+    # plant jobs -- 12 animals stranded in the shed beside 12 empty pens.
+    "ledger_animals": True,
     # Only fertilise/care for what the town is actually draining. 0.0 = any.
     "fertilize_demand_floor": 0.0,
     "fertilize_max_quadrants": 99,
@@ -473,7 +478,7 @@ def crop_jobs(crop, occupancy):
 
 
 def animal_profit(name, day, market_inventory, owned, params, pull=None,
-                  coverage=None):
+                  coverage=None, ledger=None):
     """Dollars a fresh animal returns for the rest of the season.
 
     Fed and cared for daily, ``pending_care_bonus`` banks one per day and is
@@ -482,6 +487,15 @@ def animal_profit(name, day, market_inventory, owned, params, pull=None,
     milk -- about $8k at the prices a starved market actually pays -- against a
     $400 animal, which is the best return on the board and the reason buying
     livestock late is so expensive.
+
+    With a ledger, each production is priced on the day it lands and the two
+    per-day side terms are priced per day as well. That matters more here than
+    anywhere else: fertilizer falls from $100 to about $30 over a season while
+    wheat climbs, so a season-flat price overstates what the dung is worth and
+    understates what the feed costs. Leaving animals on the season-total model
+    while crops price on the ledger is worse than either model alone -- the two
+    halves of the economy stop being comparable, and the PLACE job loses the
+    labour auction to a plant job priced on a different scale.
     """
     spec = ANIMALS[name]
     productive = LAST_DAY - day - spec["first_yield_day"]
@@ -489,12 +503,34 @@ def animal_profit(name, day, market_inventory, owned, params, pull=None,
         return -1.0
     interval = max(1, spec["interval"])
     productions = productive // interval + 1
-    units = productions * min(spec["max_held"], 1 + spec["interval"])
+    per = min(spec["max_held"], 1 + spec["interval"])
+    units = productions * per
     product = spec["product"]
+    days = LAST_DAY - day
+
+    if ledger is not None and params.get("ledger_animals", True):
+        base = market_inventory.get(product, MARKET_I0)
+        revenue, added = 0.0, 0.0
+        for k in range(productions):
+            land = day + spec["first_yield_day"] + k * interval
+            inv = base + ledger_projection(ledger, product, land, day) + added + per
+            revenue += per * price_at(product, max(0.0, inv))
+            added += per
+        fert_base = market_inventory.get("FERTILIZER", MARKET_I0)
+        wheat_base = market_inventory.get("WHEAT", MARKET_I0)
+        fert, feed = 0.0, 0.0
+        for k in range(days):
+            t = day + k
+            fert += price_at("FERTILIZER", max(
+                0.0, fert_base + ledger_projection(ledger, "FERTILIZER", t, day)))
+            feed += price_at("WHEAT", max(
+                0.0, wheat_base + ledger_projection(ledger, "WHEAT", t, day) - 1))
+        return (revenue + fert * params["fertilizer_capture"]
+                - spec["cost"] - feed)
+
     in_flight = owned.get(name, 0) * units - (pull or {}).get(product, 0)
     price = price_at(product, market_inventory.get(product, MARKET_I0) + in_flight + units)
     fert_price = price_at("FERTILIZER", market_inventory.get("FERTILIZER", MARKET_I0))
-    days = LAST_DAY - day
     revenue = units * price + days * fert_price * params["fertilizer_capture"]
     feed = days * price_at("WHEAT", market_inventory.get("WHEAT", MARKET_I0) - 1)
     return revenue - spec["cost"] - feed
@@ -1079,7 +1115,7 @@ def animal_targets(params):
 
 
 def animal_order(params, info, market_inventory, day, owned=None, pull=None,
-                 coverage=None):
+                 coverage=None, ledger=None):
     """Livestock ranked by profit per dollar, dropping anything unprofitable.
 
     ``owned`` must count animals already bought and waiting in the shed or being
@@ -1092,7 +1128,8 @@ def animal_order(params, info, market_inventory, day, owned=None, pull=None,
     counts = info["animal_counts"] if owned is None else owned
     ranked = []
     for name, target in animal_targets(params):
-        worth = animal_profit(name, day, market_inventory, counts, params, pull)
+        worth = animal_profit(name, day, market_inventory, counts, params, pull,
+                              ledger=ledger)
         if worth <= 0:
             continue
         # Deliberately *not* weighted by demand coverage. Tilting toward the
@@ -1107,7 +1144,8 @@ def animal_order(params, info, market_inventory, day, owned=None, pull=None,
     return [(name, target) for _score, name, target in ranked]
 
 
-def cull_candidates(info, params, day, market_inventory, pull=None, coverage=None):
+def cull_candidates(info, params, day, market_inventory, pull=None, coverage=None,
+                    ledger=None):
     """Animals worth more to us dead than alive.
 
     Two consecutive missed feeds and the engine deletes the animal and leaves
@@ -1129,7 +1167,7 @@ def cull_candidates(info, params, day, market_inventory, pull=None, coverage=Non
         spec = ANIMALS[name]
         # Already paid for, and already past some of its ramp-up.
         keep = animal_profit(name, day, market_inventory, info["animal_counts"],
-                             params, pull) + spec["cost"]
+                             params, pull, ledger=ledger) + spec["cost"]
         best_gain, best_name = 0.0, None
         for other, other_spec in ANIMALS.items():
             if other_spec["structure"] != spec["structure"] or other == name:
@@ -1138,7 +1176,8 @@ def cull_candidates(info, params, day, market_inventory, pull=None, coverage=Non
             if day + 2 + other_spec["first_yield_day"] > LAST_DAY:
                 continue
             gain = animal_profit(other, day + 2, market_inventory,
-                                 info["animal_counts"], params, pull) - keep
+                                 info["animal_counts"], params, pull,
+                                 ledger=ledger) - keep
             if gain > best_gain:
                 best_gain, best_name = gain, other
         if best_name and best_gain >= params["cull_min_edge"]:
@@ -1167,7 +1206,7 @@ def scaled_reserve(amount, money, params):
 
 
 def livestock_plan(params, info, shed, day, money, market_inventory, carried=None,
-                   pull=None, coverage=None):
+                   pull=None, coverage=None, ledger=None):
     """Pens to build and animals to buy, kept consistent with each other.
 
     Two accounting rules earn their keep here. Animals already sitting in the
@@ -1213,7 +1252,7 @@ def livestock_plan(params, info, shed, day, money, market_inventory, carried=Non
                 + carried.get(name, 0)
             )
         for name, target in animal_order(params, info, market_inventory, day,
-                                         owned_all, pull, coverage):
+                                         owned_all, pull, coverage, ledger):
             spec = ANIMALS[name]
             if day + spec["first_yield_day"] >= LAST_DAY:
                 continue
@@ -1291,7 +1330,8 @@ def build_jobs(obs, farm, private, params, depots, day, hours_left, endgame, inf
 
     # ---- Livestock: four co-located jobs per tile, no watering, no replanting.
     fert_price = marginal_price("FERTILIZER")
-    culls = cull_candidates(info, params, day, market_inventory, pull, coverage)
+    culls = cull_candidates(info, params, day, market_inventory, pull, coverage,
+                            ledger)
     for pos, tile in info["animals"]:
         spec = ANIMALS[tile["animal"]]
         product = spec["product"]
@@ -1347,7 +1387,8 @@ def build_jobs(obs, farm, private, params, depots, day, hours_left, endgame, inf
                     continue
                 # An unplaced animal is dead capital; realising it beats planting.
                 worth = animal_profit(name, day, market_inventory,
-                                      info["animal_counts"], params, pull)
+                                      info["animal_counts"], params, pull,
+                                      ledger=ledger)
                 add(pos, ["PLACE", name, 1], max(50.0, worth + spec["cost"]),
                     "PLACE", need=name)
                 break
@@ -1422,7 +1463,8 @@ def build_jobs(obs, farm, private, params, depots, day, hours_left, endgame, inf
     wanted, by_distance, n_struct = [], [], 0
     if not endgame and info["empty"]:
         wanted, _purchases = livestock_plan(
-            params, info, shed, day, money, market_inventory, carried, pull, coverage
+            params, info, shed, day, money, market_inventory, carried, pull,
+            coverage, ledger
         )
         by_distance = sorted(info["empty"], key=lambda p: distance(p, nearest_shed(p, depots)))
         n_struct = min(len(wanted), len(by_distance))
@@ -1446,7 +1488,7 @@ def build_jobs(obs, farm, private, params, depots, day, hours_left, endgame, inf
             kind = wanted[i]
             best = max(
                 (animal_profit(n, day, market_inventory,
-                               info["animal_counts"], params, pull)
+                               info["animal_counts"], params, pull, ledger=ledger)
                  for n, sp in ANIMALS.items() if sp["structure"] == kind),
                 default=0.0,
             )
@@ -2133,7 +2175,7 @@ def land_is_worth_working(farm, info, shed, params, market_inventory, day, pull)
 
 def plan_market(obs, farm, private, params, shed, day, hour, step, info,
                 endgame, seed_want, carried, pull, incoming, coverage=None,
-                action_cost=0.0):
+                action_cost=0.0, ledger=None):
     orders = []
     money = farm["money"]
     market_inventory = obs["market"]["inventory"]
@@ -2203,7 +2245,8 @@ def plan_market(obs, farm, private, params, shed, day, hour, step, info,
     # with fewer crops and no weeding at all.
     if slots > 0 and not endgame and expanding:
         _pens, purchases = livestock_plan(
-            params, info, shed, day, budget, market_inventory, carried, pull, coverage
+            params, info, shed, day, budget, market_inventory, carried, pull,
+            coverage, ledger
         )
         for name, want in purchases:
             if slots <= 0:
@@ -2437,7 +2480,7 @@ def _play(obs, params):
 
     market = plan_market(
         obs, farm, private, params, shed, day, hour, step, info, endgame,
-        seed_want, carried, pull, incoming, coverage, action_cost,
+        seed_want, carried, pull, incoming, coverage, action_cost, ledger,
     )
     return {
         "farmer": unit_actions[0] if unit_actions else ["PASS"],

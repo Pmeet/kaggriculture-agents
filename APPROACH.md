@@ -117,3 +117,93 @@ Ordered by expected value, each step gated by the measurement discipline in
 Steps 1-3 are the new approach. They replace one-shot prior-based forecasting
 with day-granular replanning, and mean margin with close-game conversion — the
 two places the ladder says the current agent actually loses.
+
+## Step 1 log: the per-day ledger (2026-08-15)
+
+Built and measured. **It does not beat the shipped pricing, and it is off by
+default.** What follows is the record so the next attempt starts here rather
+than at the beginning.
+
+### What was built
+
+`market_ledger` walks both farms' tiles and accumulates each committed block of
+production on the day it lands, against the town's per-day drain (unlocked
+shops as they are, future unlocks at the pool average). `ledger_crop_revenue`
+then prices each yield of a candidate planting at the projected inventory on
+its own landing day, and `animal_profit` does the same per production tick.
+Behind `ledger_pricing`, `ledger_chain`, `ledger_animals`, plus two weights.
+
+### The measurements
+
+40 seeds a side against both benchmarks, search and held out:
+
+| variant | search | holdout | margin (holdout) |
+| --- | --- | --- | --- |
+| **control (shipped)** | **0.875** | **0.825** | **+$8,738** |
+| ledger, crops only | 0.494 | 0.381 | -$3,781 |
+| ledger, crops + animals | 0.463 | 0.362 | -$3,492 |
+
+Two traps this walked into, both already documented here and both worth
+re-reading before the next structural change:
+
+* **Eight seeds decided nothing.** The same crops+animals variant measured
+  **+$2,770 held out over 8 seeds** and -$3,492 over 40. The 40-seed floor in
+  `AGENTS.md` is not conservatism, it is the minimum that distinguishes a
+  finding from a draw.
+* **A measurement was discarded, not reported.** `main.py` was edited while a
+  40-seed run was in flight; `lab/arena.run_match` builds a fresh process pool
+  per call, so later workers import the edited file and arms end up measured
+  against different code. That run was killed and re-run clean. **Do not touch
+  `main.py` while a harness run is going.**
+
+### Why it lost, as far as it was diagnosed
+
+The phase table (20 seeds vs `baseline_l`) says the loss is everywhere and
+worst at the end:
+
+| phase | control | ledger |
+| --- | --- | --- |
+| day 0-10 | +$494 | +$27 |
+| day 10-20 | +$5,839 | +$3,670 |
+| day 20-30 | +$5,476 | **-$1,784** |
+
+At day 30 the ledger stands on 29 crops to control's 20 and 25 empty tiles to
+control's 39: it keeps committing tiles late that cannot pay back. Two
+mechanisms are implicated, and neither is disproven yet.
+
+1. **The dated model is honest about a harvest and blind to the replant.** A
+   wheat tile frees on day 4 and goes again; single-cycle dated pricing books
+   only the first harvest, which unpriced the short-crop opening completely
+   (first naive run: 0.000, -$40k). `ledger_chain` prices the tile as the chain
+   of plantings it enables and restores the opening — day-0 wheat job value
+   -24 to +30 on a synthetic board, and a trace showing 19 wheat tiles by day 2
+   and a wheat line all season, which is the leaders' shape. It is a large
+   improvement over naive and still short of control.
+2. **Every dollar-denominated constant is fitted to the old scale.** Chain
+   pricing roughly doubles crop values and the ledger raises a day-0 cow from
+   $2,840 to $7,913; `plant_commitment_cost`, `land_weight`, `job_weight`, the
+   action-cost floor and cap, and the hard `max(50.0, ...)` job floors were all
+   fitted against season-total pricing. Only two were hand-tuned here.
+
+The strongest single clue is `town_pull_weight`, which the joint search settled
+at **0.1** — the shipped agent believes a tenth of the projected town drain.
+The ledger was built believing all of it (`ledger_drain_weight` 1.0) and was
+only ever swept upward, where it got worse. Sweeping it down is the obvious
+missing experiment, and `lab/evolve.py` now takes `--start` and grows the two
+ledger weights into its search space so the whole set can be re-fitted jointly
+— which is what `AGENTS.md` says a structural change requires, and what turned
+the shop-led economy from -$4,011 into +$2,161 the last time.
+
+### Verdict for now
+
+Ledger pricing stays **off**. It is not disproven, but it has not earned a
+default, and the honest reading is that it is a re-fitting problem rather than
+a modelling one. The next attempt should be a joint search from a ledger start,
+not another hand-tuned weight.
+
+### Also fixed along the way
+
+`animal_profit` priced fertilizer and feed at a flat season price. Fertilizer
+falls from about $100 to $30 across a season while wheat climbs, so the flat
+price overstated the dung and understated the feed. Only active in ledger mode
+at present; worth porting to the shipped model as a change in its own right.

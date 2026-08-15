@@ -83,6 +83,18 @@ SPACE = {
 }
 
 
+# Dials that only exist once `ledger_pricing` is on, added to the space only
+# then. They are the ledger's analogues of the demand weights above, and the
+# same argument applies with more force: the shipped weights were fitted
+# against season-total pricing, so a dated model starts every one of them
+# mis-fitted. `town_pull_weight` landing on 0.1 -- believe a tenth of the
+# projected drain -- is the precedent worth reading before trusting 1.0 here.
+LEDGER_SPACE = {
+    "ledger_drain_weight": (0.05, 1.5, False),
+    "ledger_rival_weight": (0.0, 1.2, False),
+}
+
+
 # Choices that are not numbers. `assignment_plan` is the obvious one: the letter
 # for each quadrant count interacts with almost every weight, and coordinate
 # descent over numbers alone cannot reach it.
@@ -92,14 +104,15 @@ CATEGORICAL = {
 }
 
 
-def mutate(params, rng, count, scale):
+def mutate(params, rng, count, scale, space=None):
     """Perturb `count` parameters at once, so interacting pairs can move together."""
+    space = SPACE if space is None else space
     trial = dict(params)
     for key in rng.sample(sorted(CATEGORICAL), len(CATEGORICAL)):
         if rng.random() < 0.25:
             trial[key] = rng.choice(CATEGORICAL[key])
-    for key in rng.sample(sorted(SPACE), min(count, len(SPACE))):
-        low, high, is_int = SPACE[key]
+    for key in rng.sample(sorted(space), min(count, len(space))):
+        low, high, is_int = space[key]
         span = (high - low) * scale
         value = trial.get(key, (low + high) / 2)
         value = rng.gauss(float(value), max(span, 1e-9))
@@ -132,6 +145,9 @@ def main():
     parser.add_argument("--scale", type=float, default=0.18, help="step size, 0-1")
     parser.add_argument("--seed", type=int, default=7)
     parser.add_argument("--out", default="lab/evolved.json")
+    parser.add_argument("--start", default="",
+                        help="JSON overrides applied to DEFAULTS as the "
+                             "starting incumbent, e.g. '{\"ledger_pricing\":true}'")
     args = parser.parse_args()
 
     import importlib
@@ -140,6 +156,11 @@ def main():
     opponents = [o for o in args.opponents.split(",") if o]
 
     incumbent = dict(module.DEFAULTS)
+    if args.start:
+        incumbent.update(json.loads(args.start))
+    space = dict(SPACE)
+    if incumbent.get("ledger_pricing"):
+        space.update(LEDGER_SPACE)
     search = range(1, args.seeds + 1)
     holdout = range(2001, 2001 + args.seeds)
 
@@ -159,7 +180,7 @@ def main():
         for _ in range(args.children):
             if time.time() - started >= args.budget:
                 break
-            trial = mutate(incumbent, rng, args.mutate, args.scale)
+            trial = mutate(incumbent, rng, args.mutate, args.scale, space)
             mean, worst = score(args.module, trial, opponents, search, args.workers)
             if (mean, worst) > (best_mean, best_worst):
                 best_mean, best_worst, improved = mean, worst, trial
@@ -168,7 +189,7 @@ def main():
                   f"(incumbent {best_mean:+,.0f})")
             continue
         changed = {k: v for k, v in improved.items()
-                   if module.DEFAULTS.get(k) != v and (k in SPACE or k in CATEGORICAL)}
+                   if module.DEFAULTS.get(k) != v and (k in space or k in CATEGORICAL)}
         hold_mean, _ = score(args.module, improved, opponents, holdout, args.workers)
         print(f"gen {generation}: search {best_mean:+,.0f}  held-out {hold_mean:+,.0f}"
               f"  {changed}")

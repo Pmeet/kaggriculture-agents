@@ -13,3 +13,4 @@ reports/
 submission*.tar.gz
 lab/*.log
 replays/
+scratch_*.py

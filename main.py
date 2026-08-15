@@ -249,6 +249,24 @@ DEFAULTS = {
     # Price a tile against the market on the day it sells, not today's.
     "horizon_pricing": False,
     "horizon_from_day": 0,
+    # Per-day supply/demand ledger. Supply does not arrive evenly: it lands in
+    # lumps on the specific days each committed tile harvests, and every tile
+    # carries that date. The ledger walks both farms' tiles and accumulates
+    # per-day landings against the town's per-day drain, then prices each yield
+    # of a candidate planting at the projected inventory on the day it lands --
+    # the dated version of what `sale_horizon` approximated with a linear share.
+    # Off by default until it beats the shipped pricing held out.
+    "ledger_pricing": False,
+    # How much of the opponent's committed schedule to believe. Their tiles are
+    # public and dated, but their selling policy is not ours.
+    "ledger_rival_weight": 1.0,
+    # How much of the town's projected drain to credit against future supply.
+    "ledger_drain_weight": 1.0,
+    # Price a tile as the chain of plantings it enables, not one cycle. A
+    # wheat tile frees on day 4 and replants; single-cycle dated pricing is
+    # honest about the first harvest and blind to every one after it, which
+    # unpriced the short-crop opening entirely.
+    "ledger_chain": False,
     # Only fertilise/care for what the town is actually draining. 0.0 = any.
     "fertilize_demand_floor": 0.0,
     "fertilize_max_quadrants": 99,
@@ -707,6 +725,198 @@ def town_pull(obs, day, params):
     return pull
 
 
+def farm_landings(farm, day, ledger, weight=1.0):
+    """Accumulate a farm's committed production into `ledger` by landing day.
+
+    Mirrors `rival_supply`'s reading of the tiles -- same yield accounting, same
+    abandoned-crop cutoff -- but keeps the date each block of units reaches the
+    market instead of summing the season. A one-time crop's whole harvest lands
+    on its ripening day; an ongoing crop and an animal tick on their cadence.
+    """
+    for row in farm["tiles"]:
+        for tile in row:
+            if not isinstance(tile, dict):
+                continue
+            if tile.get("kind") == "PLANT":
+                crop = tile.get("crop")
+                cd = CROPS.get(crop)
+                if not cd:
+                    continue
+                planted = tile.get("planted_day", day)
+                held = tile.get("yield_units", 0)
+                age = day - planted
+                if cd["ongoing"]:
+                    left = max(0, cd["max_yield"] - held)
+                    first = planted + cd["first_yield_day"]
+                    step = max(1, cd["interval"])
+                    ticks = [first + k * step for k in range(cd["max_yield"])]
+                    for t in [t for t in ticks if day <= t <= LAST_DAY][:left]:
+                        bucket = ledger.setdefault(crop, {})
+                        bucket[t] = bucket.get(t, 0.0) + weight
+                else:
+                    left = max(0, crop_units(crop) - held)
+                    if age > harvest_age(crop) + 2:
+                        left = 0
+                    units = held + left
+                    if units > 0:
+                        land = max(day, planted + cd["max_yield_day"])
+                        if land <= LAST_DAY:
+                            bucket = ledger.setdefault(crop, {})
+                            bucket[land] = bucket.get(land, 0.0) + units * weight
+            elif "animal" in tile:
+                spec = ANIMALS.get(tile["animal"])
+                if not spec:
+                    continue
+                first = tile.get("placed_day", day) + spec["first_yield_day"]
+                step = max(1, spec["interval"])
+                per = min(spec["max_held"], 1 + spec["interval"])
+                product = spec["product"]
+                start = max(0, (day - first + step - 1) // step) if first < day else 0
+                for k in range(start, start + 40):
+                    t = first + k * step
+                    if t < day:
+                        continue
+                    if t > LAST_DAY:
+                        break
+                    bucket = ledger.setdefault(product, {})
+                    bucket[t] = bucket.get(t, 0.0) + per * weight
+
+
+def market_ledger(obs, player, day, params):
+    """Projected market-inventory delta per product, cumulative by day.
+
+    ``ledger[item][d - day]`` is the net units expected to have entered the
+    market by the end of day ``d``: both farms' dated landings less the town's
+    drain from the shops actually unlocked (future unlocks at the pool
+    average, exactly as `town_pull` credits them). Add it to today's observed
+    inventory to price a sale that happens on day ``d``.
+    """
+    span = LAST_DAY - day + 1
+    landings = {}
+    farms = obs.get("farms") or []
+    if player < len(farms):
+        farm_landings(farms[player], day, landings, 1.0)
+    if len(farms) > 1 and params["ledger_rival_weight"] > 0:
+        farm_landings(farms[1 - player], day, landings,
+                      params["ledger_rival_weight"])
+
+    drain_weight = params["ledger_drain_weight"]
+    rates = {}
+
+    def add_rate(item, from_day, per_day):
+        rates.setdefault(item, []).append((max(day, from_day), per_day))
+
+    if drain_weight > 0:
+        shops = (obs.get("town") or {}).get("unlocked_shops") or []
+        for shop in shops:
+            products = SHOP_DEMAND.get(shop)
+            if not products:
+                continue
+            multiplier = 2 if len(products) == 1 else 1
+            for item in products:
+                add_rate(item, day, multiplier * TURNS_PER_DAY / 4.0)
+        for item in TOWN_CENTRE_PRODUCTS:
+            add_rate(item, day, 1.0)
+        future_weight = params["future_pull_weight"]
+        if future_weight > 0:
+            for index in range(len(shops), MAX_SHOP_INSTANCES):
+                unlock_day = (index + 1) * SHOP_UNLOCK_INTERVAL
+                if unlock_day > LAST_DAY:
+                    continue
+                for item, expected in EXPECTED_SHOP_DEMAND.items():
+                    add_rate(item, unlock_day,
+                             expected * future_weight * TURNS_PER_DAY / 4.0)
+
+    ledger = {}
+    for item in set(landings) | set(rates):
+        row = [0.0] * span
+        for t, units in (landings.get(item) or {}).items():
+            row[t - day] += units
+        for from_day, per_day in rates.get(item, ()):
+            for offset in range(from_day - day, span):
+                row[offset] -= per_day * drain_weight
+        total = 0.0
+        for offset in range(span):
+            total += row[offset]
+            row[offset] = total
+        ledger[item] = row
+    return ledger
+
+
+def ledger_projection(ledger, item, land_day, day):
+    row = ledger.get(item)
+    if not row:
+        return 0.0
+    return row[min(len(row) - 1, max(0, int(land_day - day)))]
+
+
+def planting_ticks(crop, day):
+    """(landing day, units) for each yield of a tile planted today.
+
+    The dated twin of `realizable`: same partial-cycle allowance, but the units
+    keep the day they reach the market instead of collapsing into one total.
+    """
+    cd = CROPS[crop]
+    units, occupancy = realizable(crop, day)
+    if units <= 0:
+        return []
+    if cd["ongoing"]:
+        first = day + cd["first_yield_day"]
+        step = max(1, cd["interval"])
+        return [(first + k * step, 1) for k in range(units)]
+    return [(day + occupancy, units)]
+
+
+def ledger_crop_revenue(crop, market_inventory, day, ledger, extra=None,
+                        params=None):
+    """Dollars a tile planted today returns, each yield priced on its own day.
+
+    `extra` carries the ticks of tiles already committed by the current
+    planting pass, so the marginal-allocation loop keeps its property: the
+    tenth tile of a crop is priced against the nine lumps landing before it.
+
+    With `ledger_chain` on, the tile is priced as the *chain* of plantings it
+    enables rather than one cycle: a wheat tile frees on day 4 and replants,
+    so its true value is every cycle the season still has room for. Later
+    cycles enter net of their own labour (the commitment charge the PLANT job
+    would levy on each), and their landings accumulate, so the chain's own
+    supply depresses its own later prices. Without this, dated pricing is
+    honest about the first harvest and blind to the replant -- which is the
+    accidental favour the season-total model was doing for short crops.
+    """
+    base = market_inventory.get(crop, MARKET_I0)
+    prior = (extra or {}).get(crop, ())
+    commitment = (params or {}).get("plant_commitment_cost", 0.0)
+    chain = bool((params or {}).get("ledger_chain"))
+    total, added = 0.0, 0.0
+    plant_day, cycles = day, 0
+    while True:
+        ticks = planting_ticks(crop, plant_day)
+        if not ticks:
+            break
+        cycle = -CROPS[crop]["seed"]
+        for land_day, units in ticks:
+            inv = base + ledger_projection(ledger, crop, land_day, day)
+            inv += sum(u for t, u in prior if t <= land_day)
+            inv += added + units
+            cycle += units * price_at(crop, max(0.0, inv))
+            added += units
+        _units, occupancy = realizable(crop, plant_day)
+        if cycles == 0:
+            total += cycle
+        else:
+            # A later cycle is optional: it happens only if it clears its own
+            # labour, and the first cycle's job carries none of its cost.
+            total += max(0.0, cycle - crop_jobs(crop, occupancy) * commitment)
+        cycles += 1
+        if not chain:
+            break
+        plant_day += occupancy + 1
+    if cycles == 0:
+        return -1.0
+    return total
+
+
 def fertilize_gain(crop, tile, day):
     """Extra units one FERTILIZER buys on this tile, replayed off the engine rules.
 
@@ -765,12 +975,19 @@ def sale_horizon(day, occupancy, params):
     return share, share
 
 
-def crop_profit(crop, market_inventory, planted, day, pull=None, params=None):
+def crop_profit(crop, market_inventory, planted, day, pull=None, params=None,
+                ledger=None, extra=None):
     """Dollars a tile returns over one planting, at the price we expect to get."""
     cd = CROPS[crop]
     units, occupancy = realizable(crop, day)
     if units <= 0:
         return -1.0
+    if ledger is not None:
+        # The ledger already carries our own committed tiles (dated) and the
+        # town's drain, so the season-total `planted`/`pull` terms would count
+        # the same supply and demand twice.
+        return ledger_crop_revenue(crop, market_inventory, day, ledger, extra,
+                                   params)
     supply_share, demand_share = sale_horizon(day, occupancy, params or {})
     in_flight = (planted.get(crop, 0) * units * supply_share
                  - (pull or {}).get(crop, 0) * demand_share)
@@ -779,7 +996,7 @@ def crop_profit(crop, market_inventory, planted, day, pull=None, params=None):
 
 
 def crop_value(crop, market_inventory, planted, day, money, params, pull=None,
-               coverage=None):
+               coverage=None, ledger=None, extra=None):
     """Expected profit per unit of the two things we are actually short of.
 
     Land and labour are both scarce, so a crop is scored against the tile-days
@@ -796,11 +1013,15 @@ def crop_value(crop, market_inventory, planted, day, money, params, pull=None,
     units, occupancy = realizable(crop, day)
     if units <= 0 or occupancy <= 0:
         return -1.0
-    supply_share, demand_share = sale_horizon(day, occupancy, params)
-    in_flight = (planted.get(crop, 0) * units * supply_share
-                 - (pull or {}).get(crop, 0) * demand_share)
-    expected = price_at(crop, market_inventory.get(crop, MARKET_I0) + in_flight + units)
-    profit = units * expected - cd["seed"]
+    if ledger is not None:
+        profit = ledger_crop_revenue(crop, market_inventory, day, ledger, extra,
+                                     params)
+    else:
+        supply_share, demand_share = sale_horizon(day, occupancy, params)
+        in_flight = (planted.get(crop, 0) * units * supply_share
+                     - (pull or {}).get(crop, 0) * demand_share)
+        expected = price_at(crop, market_inventory.get(crop, MARKET_I0) + in_flight + units)
+        profit = units * expected - cd["seed"]
     if profit <= 0:
         return -1.0
     cost = occupancy * params["land_weight"] + crop_jobs(crop, occupancy) * params["job_weight"]
@@ -1034,7 +1255,7 @@ def livestock_plan(params, info, shed, day, money, market_inventory, carried=Non
 # --------------------------------------------------------------------------
 
 def build_jobs(obs, farm, private, params, depots, day, hours_left, endgame, info,
-               money, carried, pull, coverage=None):
+               money, carried, pull, coverage=None, ledger=None):
     saturation = labour_saturation(farm, info, params)
     saturated = saturation > params["capacity_slack"]
     # Labour is already charged for on the buying side -- `crop_value` divides by
@@ -1210,7 +1431,7 @@ def build_jobs(obs, farm, private, params, depots, day, hours_left, endgame, inf
     # the ones committed before it. The first entry is also what a weeded tile
     # is worth, since digging it out is what makes that planting possible.
     plan = plan_planting(obs, params, info, day, money, pull,
-                         max(1, len(by_distance) - n_struct), coverage)
+                         max(1, len(by_distance) - n_struct), coverage, ledger)
     crop_choice = plan[0][0] if plan else None
     tile_worth = plan[0][1] if plan else 0.0
     crop_score = plan[0][2] if plan else 0.0
@@ -1259,21 +1480,22 @@ def build_jobs(obs, farm, private, params, depots, day, hours_left, endgame, inf
     return jobs, crop_choice, crop_score, seed_want
 
 
-def pick_crop(obs, params, info, day, money, pull=None, coverage=None):
+def pick_crop(obs, params, info, day, money, pull=None, coverage=None,
+              ledger=None):
     market_inventory = obs["market"]["inventory"]
     best, best_score = None, 0.0
     for crop in CROPS:
         if crop == "MELON" and info["planted"].get("MELON", 0) >= params["melon_max_tiles"]:
             continue
         score = crop_value(crop, market_inventory, info["planted"], day, money,
-                           params, pull, coverage)
+                           params, pull, coverage, ledger)
         if score > best_score:
             best, best_score = crop, score
     return best, best_score
 
 
 def plan_planting(obs, params, info, day, money, pull=None, n_tiles=1,
-                  coverage=None):
+                  coverage=None, ledger=None):
     """Choose a crop for each empty tile, each priced against the ones before it.
 
     ``pick_crop`` scores crops once and every empty tile gets the winner, so the
@@ -1296,14 +1518,19 @@ def plan_planting(obs, params, info, day, money, pull=None, n_tiles=1,
     n_tiles = max(0, int(n_tiles))
 
     if params.get("tile_alloc", "marginal") != "marginal":
-        crop, score = pick_crop(obs, params, info, day, money, pull, coverage)
+        crop, score = pick_crop(obs, params, info, day, money, pull, coverage,
+                                ledger)
         if crop is None:
             return []
         worth = max(0.0, crop_profit(crop, market_inventory, info["planted"], day, pull,
-                                     params))
+                                     params, ledger))
         return [(crop, worth, score)] * n_tiles
 
     planted = dict(info["planted"])
+    # In ledger mode the tiles committed by this very pass are not in the
+    # ledger yet; their dated ticks accumulate here so each further tile is
+    # priced against the lumps landing before its own.
+    extra = {}
 
     # Melon holds a tile for ten days and pays nothing until day 12, so a farm
     # that plants only melon earns nothing at all through the first third of the
@@ -1347,14 +1574,17 @@ def plan_planting(obs, params, info, day, money, pull=None, n_tiles=1,
                 if planted.get(crop, 0) + 1 > share * total:
                     continue
             score = crop_value(crop, market_inventory, planted, day, money, params,
-                               pull, coverage)
+                               pull, coverage, ledger, extra)
             if score > best_score:
                 best, best_score = crop, score
         if best is None:
             break
-        worth = max(0.0, crop_profit(best, market_inventory, planted, day, pull, params))
+        worth = max(0.0, crop_profit(best, market_inventory, planted, day, pull,
+                                     params, ledger, extra))
         plan.append((best, worth, best_score))
         planted[best] = planted.get(best, 0) + 1
+        if ledger is not None:
+            extra.setdefault(best, []).extend(planting_ticks(best, day))
     return plan
 
 
@@ -2159,10 +2389,13 @@ def _play(obs, params):
         for item, rival_units in rival_supply(obs, player, day).items():
             pull[item] = pull.get(item, 0.0) - rival_units * params["rival_supply_weight"]
     incoming = rival_incoming(obs, player, day, params["rival_horizon"])
+    ledger = None
+    if params.get("ledger_pricing"):
+        ledger = market_ledger(obs, player, day, params)
 
     jobs, _crop_choice, _crop_score, seed_want = build_jobs(
         obs, farm, private, params, depots, day, hours_left, endgame, info,
-        farm["money"], carried, pull, coverage,
+        farm["money"], carried, pull, coverage, ledger,
     )
 
     action_cost = 0.0

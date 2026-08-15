@@ -8,9 +8,12 @@ uploads anything on its own.
 ## Quick Start
 
 The research environment is a Linux virtualenv at `~/.venvs/kaggri`
-(Python 3.12.13, `kaggle-environments==1.32.3`, `kaggle==2.2.4`). The Windows
-`.venv/` in the repository is kept for parity checks; the installed engine in
-both is byte-identical.
+(Python 3.12.13, `kaggle-environments==1.32.6`, `kaggle==2.2.4`). That version
+is the post-rebalance engine the ladder runs, and every measurement belongs
+there. The Windows `.venv/` in the repository is **stale** — it is still on
+1.32.3, the pre-rebalance engine, and is not a parity check. See the Environment
+section of [`AGENTS.md`](AGENTS.md) for what differs and how to verify the
+version from a live replay.
 
 ```bash
 # Tests and lint.
@@ -31,7 +34,7 @@ To rebuild the research environment:
 
 ```bash
 uv venv --python 3.12 ~/.venvs/kaggri
-VIRTUAL_ENV=~/.venvs/kaggri uv pip install "kaggle-environments==1.32.3" "kaggle==2.2.4" ruff
+VIRTUAL_ENV=~/.venvs/kaggri uv pip install "kaggle-environments==1.32.6" "kaggle==2.2.4" ruff
 ```
 
 `kaggle-environments` prints unrelated OpenSpiel/CABT loader warnings on first
@@ -68,6 +71,8 @@ Nothing under `lab/` is submitted.
 | `inspect_game.py` | Per-episode diagnostics and revenue attribution |
 | `probe.py` | Dumps the agent's internal job list at chosen turns |
 | `replay.py` | Analyses downloaded Kaggle replays |
+| `versions.py` | Resolves `recent` / `vNN` / `vNN..vNN` to frozen snapshots |
+| `checks/frozen.py` | Guards `agents/` against edits to a frozen snapshot |
 
 `arena.fast_play` skips the framework's per-step deep copy, which profiling put
 at over half a game's runtime. `tests/test_integration.py` pins it to identical
@@ -77,6 +82,28 @@ Measurement discipline, learned the hard way: win rate over a few dozen games ha
 a ±0.19 interval, so steer on paired bank margin and confirm head-to-head; always
 validate on held-out seeds; and tune against the pool rather than a single frozen
 copy of the agent.
+
+## Branches
+
+Each candidate agent is developed on its own branch cut from `main`
+(`agent/v23`, `agent/v24`, …). Work happens in `main.py`; when a candidate is
+frozen for submission it is copied to the next `agents/baseline_*.py`, recorded
+in `lab/submissions.json`, and merged back to `main`.
+
+A version branch can still be scored against every earlier agent without
+switching branches, because opponents resolve as Python modules from the working
+tree and all the frozen snapshots live in `agents/`:
+
+```bash
+# The last six submissions, resolved from lab/submissions.json at run time.
+~/.venvs/kaggri/bin/python lab/ab.py --seeds 40 --variant 'cand:{}'
+```
+
+Two rules keep that honest. `agents/` is **append-only** — editing a frozen
+snapshot silently changes what every past measurement meant, which
+`lab/checks/frozen.py` exists to catch. And opponent sets are **never
+hardcoded**: `recent` re-reads the registry each run, so the bar rises on its
+own as versions ship. Full workflow in [`AGENTS.md`](AGENTS.md).
 
 ## Correctness Harness
 

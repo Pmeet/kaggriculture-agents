@@ -604,7 +604,25 @@ over full games), every game `DONE`, p95 turn latency far below the 1s limit
 ## Environment
 
 - Research venv (Linux, fast): `~/.venvs/kaggri` — Python 3.12.13,
-  `kaggle-environments==1.32.3`, `kaggle==2.2.4`. Engine verified byte-identical
-  to the Windows `.venv` copy.
-- The Windows `.venv/` in the repo is retained for parity checks.
+  `kaggle-environments==1.32.6`, `kaggle==2.2.4`. **This is the post-rebalance
+  engine the ladder runs. Measure here, and only here.**
+- The Windows `.venv/` in the repo is **stale**: `kaggle-environments==1.32.3`,
+  the pre-rebalance engine, untouched since 2026-08-04. It is not a parity
+  check and has not been one since the ladder moved. Do not run measurements
+  against it.
 - `nproc` reports 32 but parallel throughput saturates near 16 workers.
+
+The two engines differ in shop unlocking (drawn with replacement and capped at
+`MAX_SHOP_INSTANCES` = 8, against the old draw without replacement), town centre
+demand (`townCenterSellInterval` 24 flat, against 12 with a rising multiplier),
+`shedCapacity` enforcement on purchases, and PLACE/LOCKED ordering. Crops,
+animals and the price curve did **not** change, so the plant and animal
+lifecycles and the whole market model still read the same in both.
+
+**Verify the engine from a live replay before trusting any tuning.** The
+decisive check is a replay of one of our own submissions: `configuration`
+records `townCenterSellInterval` (24 = rebalanced, 12 = old), and
+`unlocked_shops` contains duplicates only post-rebalance. The move was never
+announced in the repo, and days of parameter tuning were once measured against
+the wrong game before anyone noticed. Re-check after any gap in work, or
+whenever results stop making sense.

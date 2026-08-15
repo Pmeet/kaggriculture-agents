@@ -593,6 +593,85 @@ because by then `days_left` is small enough that the share is already 1.0. The
 endgame swing came from the weights bundled into the same variant. Change one
 thing per phase table.
 
+## The per-day ledger: built, measured, and off (2026-08-15)
+
+The refinement the horizon note below asks for -- "supply does not arrive
+evenly, it lands in lumps on specific harvest days, and every planted tile
+already carries the date it will land. A real projection walks the tiles and
+accumulates per day. That is the version worth building" -- has now been built.
+It is behind `ledger_pricing` and it is **off**, because it loses.
+
+`market_ledger` walks both farms and accumulates each committed block of
+production on its landing day against the town's per-day drain;
+`ledger_crop_revenue` prices each yield of a candidate planting at the
+projected inventory on the day it lands, and `animal_profit` does the same per
+production tick. Full write-up in `APPROACH.md`.
+
+| variant, 40 seeds a side vs both benchmarks | search | holdout | margin |
+| --- | --- | --- | --- |
+| **control (shipped)** | **0.875** | **0.825** | **+$8,738** |
+| ledger, crops only | 0.494 | 0.381 | -$3,781 |
+| ledger, crops + animals | 0.463 | 0.362 | -$3,492 |
+
+Three results worth keeping, whatever happens to the ledger itself.
+
+**Dated pricing is blind to the replant, and that is most of the naive loss.**
+A wheat tile frees on day 4 and goes again. Pricing one cycle books only the
+first harvest, which unpriced the short-crop opening outright: the first naive
+run scored **0.000, -$40,732**. `ledger_chain` prices the tile as the chain of
+plantings it enables, later cycles net of their own labour, and that restores
+the opening -- day-0 wheat job value -24 to +30, and a trace with 19 wheat
+tiles by day 2 and a wheat line all season, which is the leaders' shape. It is
+worth ~$30k over naive and still short of control.
+
+**The drain weight is a peak, not a slope, and the obvious analogy is wrong.**
+`town_pull_weight` settled at 0.1, so the natural guess was that the ledger
+should also believe about a tenth of the projected drain. Measured over 16
+seeds, that guess is catastrophic and backwards:
+
+| `ledger_drain_weight` | holdout | margin |
+| --- | --- | --- |
+| 0.10 | 0.062 | -$23,370 |
+| 0.25 | 0.078 | -$19,918 |
+| **0.50** | **0.500** | **+$324** |
+| 1.00 | (0.362 at 40 seeds) | -$3,492 |
+| 1.50 | 0.000 | -$38,931 |
+
+The two weights are not the same quantity. `town_pull` is subtracted from a
+season total; the ledger's drain accumulates day by day and sets the *level*
+the price curve is read at, so starving it collapses projected inventory and
+the below-base branch of `price_at` then inflates everything.
+
+**Never edit `main.py` while a harness run is in flight.** `lab/arena.run_match`
+builds a fresh `ProcessPoolExecutor` per call, so workers spawned after an edit
+import the new file: arms of the same table end up measured against different
+code. One 40-seed run was discarded and re-run for this. Nothing warns you --
+the numbers still print.
+
+And the standing trap, hit again: the crops+animals variant measured **+$2,770
+held out over 8 seeds** and **-$3,492 over 40**. Forty seeds is the floor.
+
+### Fixed on the way, worth porting
+
+`animal_profit` priced fertilizer and feed at a flat season price. Fertilizer
+falls from about $100 to $30 across a season while wheat climbs, so the flat
+figure overstates the dung and understates the feed. The dated version is
+currently reachable only in ledger mode; it is a change worth measuring on the
+shipped model in its own right.
+
+### Where it stands
+
+Not disproven, but it has not earned a default, and the reading is that this is
+a **re-fitting** problem rather than a modelling one: chain pricing roughly
+doubles crop values and the ledger raises a day-0 cow from $2,840 to $7,913,
+while `plant_commitment_cost`, `land_weight`, `job_weight`, the action-cost
+floor and cap, and the hard `max(50.0, ...)` job floors were every one of them
+fitted against season-total pricing. `lab/evolve.py --start` now begins a
+search from a ledger agent and grows `ledger_drain_weight` and
+`ledger_rival_weight` into its space. If a joint search from there does not
+clear control, record the ledger as rejected and spend the effort on reactive
+planting and the endgame instead.
+
 ## Settled, so nobody re-litigates them
 
 - **The melon opening is correct.** It looks wrong in a replay -- 23 melon

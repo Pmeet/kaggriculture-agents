@@ -343,6 +343,47 @@ trades that sequencing away for jobs that happen to sum higher today.
 heuristic.** Ships off. Do not "fix" it again without first replacing the
 per-turn score with one that prices the whole commitment.
 
+## Yes, local games have shops -- and the seeds cover the spread
+
+Worth confirming because so much of the strategy hangs on the shop draw. Every
+local game runs the full town: `env.info["seed"]` is populated from
+`configuration={"seed": N}`, so the draw varies properly.
+
+Across seeds 1-24 and 1001-1024, **every seed produced a distinct shop line-up**,
+and the extremes are represented -- up to **four copies of one shop** in a single
+game, which is the case that makes a season lopsided.
+
+| product | min | median | max | seeds with **zero** demand |
+| --- | --- | --- | --- | --- |
+| wheat | 2 | 5 | 7 | 0 |
+| strawberry | 1 | 4 | 7 | 0 |
+| milk | 0 | 3 | 6 | 1-2 of 24 |
+| carrot | 0 | 3 | 9 | 2-3 of 24 |
+| **wool** | 0 | 2 | 6 | **7-9 of 24** |
+
+So roughly a third of games contain no yarn store at all, and wheat and
+strawberry are never absent -- which is the empirical version of their 5/8 and
+4/8 share of the shop pool.
+
+**A subtlety when reasoning about seeds.** The shop line-up is *not* a pure
+function of the seed. `_end_of_day` seeds one RNG per day and `_spawn_weeds`
+draws from it for every empty tile *before* the shop choice is made, so the draw
+depends on how the agents played. Both seats of a paired game still see the same
+town, so common random numbers still hold within a pair -- but do not expect to
+reproduce a line-up offline, and do not assume two different candidates saw the
+same shops on the same seed.
+
+### Sheep are not adapted to wool demand, and it does not matter
+
+The obvious worry: in the third of games with no yarn store, are we still buying
+sheep? Yes -- 5.6 bought against 6.1 when wool is wanted, so the agent is not
+adapting at all. It costs nothing: those games bank **$82,900 against $77,798**,
+and wool sold is 49 against 43. The town centre drains ~29 wool a season whatever
+the shops do, and we sell roughly what gets absorbed either way.
+
+What the same measurement did turn up: **~6 sheep bought, ~2.5 on the board at
+the end.** That gap, not the demand mismatch, is where the sheep money goes.
+
 ## Pre-ship checklist
 
 Run these in order. The first step is the one that keeps every later number

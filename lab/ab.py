@@ -34,8 +34,10 @@ def evaluate(module, params, opponent, seeds, workers):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--module", default="main")
-    parser.add_argument("--opponent", default="agents.baseline_j:agent",
-                        help="comma-separated; 'benchmarks' = v15 and v18")
+    parser.add_argument("--opponent", default="recent",
+                        help="comma-separated: 'recent' / 'recent:N' (the last N "
+                             "submissions, default), 'benchmarks', a version label "
+                             "(v21), an inclusive range (v18..v21), or module:attr")
     parser.add_argument("--seeds", type=int, default=24)
     parser.add_argument("--workers", type=int, default=16)
     parser.add_argument("--variant", action="append", default=[],
@@ -47,11 +49,8 @@ def main():
     search = range(1, args.seeds + 1)
     holdout = range(1001, 1001 + args.seeds)
 
-    if args.opponent == "benchmarks":
-        from lab.pool import BENCHMARKS
-        opponents = list(BENCHMARKS)
-    else:
-        opponents = [o for o in args.opponent.split(",") if o]
+    from lab.versions import expand
+    opponents = expand(args.opponent)
     labels = [o["name"] if isinstance(o, dict) else o for o in opponents]
 
     print(f"{args.module} vs {', '.join(labels)}  "

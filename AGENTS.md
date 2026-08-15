@@ -384,6 +384,60 @@ the shops do, and we sell roughly what gets absorbed either way.
 What the same measurement did turn up: **~6 sheep bought, ~2.5 on the board at
 the end.** That gap, not the demand mismatch, is where the sheep money goes.
 
+## One branch per agent version
+
+Each candidate is developed on its own branch, cut fresh from `main`:
+
+```bash
+git checkout main && git pull
+git checkout -b agent/v23
+```
+
+Work happens in `main.py`. When the candidate is frozen for submission, copy it
+to the next `agents/baseline_*.py`, record its submission id and label in
+`lab/submissions.json`, and merge the branch back into `main`.
+
+**Merging back is not bookkeeping.** Frozen snapshots are the only opponents we
+have, so a version that never reaches `main` is one the next candidate can never
+be measured against.
+
+### The branch can still fight every earlier agent
+
+Opponents resolve as Python modules from the working tree, not from git history,
+and every frozen snapshot lives in `agents/`. A branch cut from `main` therefore
+carries all of them, and `agent/v23` scores against the recent submissions
+without switching branches or checking anything out:
+
+```bash
+python lab/ab.py --seeds 40 --variant 'cand:{}'
+```
+
+`--opponent` defaults to `recent`: the last six labels in
+`lab/submissions.json`, resolved by `lab/versions.py` on every run. Pass
+`recent:7` for a wider set, or a label (`v21`) or inclusive range (`v18..v21`)
+for something narrower.
+
+**Never write version numbers into a script or a checklist.** A hardcoded
+opponent set is right on the day it is written and quietly wrong one submission
+later, when it is still grading candidates against agents we have already
+beaten -- trap 5 from *Where things stand*, wearing a different hat. `recent`
+raises its own bar; `v18..v21` does not.
+
+### `agents/` is append-only
+
+Adding a snapshot is the only permitted change to `agents/`. Editing one
+retroactively changes what every past measurement meant, and nothing complains:
+the module still imports, the gauntlet still prints a number, and that number
+still looks like yesterday's.
+
+```bash
+python lab/checks/frozen.py
+```
+
+checks that every snapshot on the branch is byte-identical to `main`, and that
+every opponent named in `benchmarks.json` and `submissions.json` imports and
+exposes an agent. It exits non-zero, so it can gate CI or a pre-push hook.
+
 ## Pre-ship checklist
 
 Run these in order. The first step is the one that keeps every later number
@@ -399,11 +453,16 @@ honest, and it is the one that was being skipped.
    already beaten.
 2. **Score the candidate against them**, at 40 seeds or more.
    `python lab/ab.py --seeds 40 --opponent benchmarks --variant 'cand:{}'`
-3. `python -m unittest discover -s tests` and `python -m ruff check .`
-4. `python lab/checks/validate.py` -- zero issues, every game DONE, nothing
+   Then against the recent field, which is the harder bar and the default:
+   `python lab/ab.py --seeds 40 --variant 'cand:{}'`
+3. **Confirm no frozen agent drifted.** `python lab/checks/frozen.py`
+   A modified snapshot makes every number above incomparable to every number
+   recorded before it, silently.
+4. `python -m unittest discover -s tests` and `python -m ruff check .`
+5. `python lab/checks/validate.py` -- zero issues, every game DONE, nothing
    unsold in the shed.
-5. `python lab/pool.py 20` as a regression check, not a steering signal.
-6. `python lab/phases.py` if the change is meant to affect a particular phase.
+6. `python lab/pool.py 20` as a regression check, not a steering signal.
+7. `python lab/phases.py` if the change is meant to affect a particular phase.
 
 **Forty seeds is the floor.** The same candidate measured over 5 seeds scored
 0.900 on one seed set and 0.750 on the other -- a 0.15 swing between two 20-game

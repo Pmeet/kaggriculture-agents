@@ -33,15 +33,19 @@ def variant(params, name, module="agents.v3"):
 # opponents whose strength is confirmed by the ladder rather than by us.
 #
 #   v15 (baseline_j) -- melon capital-pump economy, peak 753.5
-#   v18 (baseline_k) -- evolved shop-led economy, peak 786.5
+#   v21 (baseline_n) -- capacity-gated shop-led economy, peak 810.4
 #
 # They are deliberately *different economies*, not two versions of one idea, so
 # beating both means beating two distinct ways of playing rather than one
-# lineage with a tuning change. Keep them frozen; add a third only when a new
-# agent holds a higher live rating than either.
+# lineage with a tuning change. Keep them frozen.
+#
+# v21 replaced v18 (baseline_k, peak 786.5) on 2026-08-15 under the promotion
+# rule: a benchmark is only displaced by an agent holding a **higher live
+# rating**, never by one that merely looks better locally. v18 is kept on disk
+# for reference but is no longer a yardstick.
 BENCHMARKS = [
     {"module": "agents.baseline_j", "attr": "agent", "name": "v15-melon"},
-    {"module": "agents.baseline_k", "attr": "agent", "name": "v18-shopled"},
+    {"module": "agents.baseline_n", "attr": "agent", "name": "v21-capgated"},
 ]
 
 POOL = BENCHMARKS + [

@@ -343,7 +343,25 @@ trades that sequencing away for jobs that happen to sum higher today.
 heuristic.** Ships off. Do not "fix" it again without first replacing the
 per-turn score with one that prices the whole commitment.
 
-## The two standing benchmarks: v15 and v18
+## Always score a candidate against the *newest* strong agents too
+
+A candidate scored only against the standing benchmarks is not fully tested:
+those are deliberately frozen, so an agent two or three revisions newer has
+never faced the thing it actually has to beat. v22 was shipped having been
+measured against v15 and v18 alone. Checked afterwards against v21 and v20 it
+does hold up -- +$6,181 and +$11,295, 0.825 held out over 80 games each -- but
+that was luck, not method.
+
+**Before shipping, run the candidate against the previous two submissions as
+well as the benchmarks.** The control is worth including: v21's own parameters
+score exactly +$0 against `baseline_n`, which is the cheapest possible proof the
+harness is comparing what it claims to.
+
+And note what a small sample does here. The same v22 measured over 5 seeds gave
+0.900 on one seed set and 0.750 on the other -- a 0.15 swing between two 20-game
+samples. Forty seeds is the floor for a decision.
+
+## The two standing benchmarks: v15 and v21
 
 **Every future candidate is measured against these two before anything else.**
 They are the only opponents whose strength is confirmed by the *ladder* rather
@@ -353,7 +371,11 @@ tunings of one:
 | | file | peak live rating | economy |
 | --- | --- | --- | --- |
 | **v15** | `agents/baseline_j.py` | 753.5 | melon capital pump, livestock-led |
-| **v18** | `agents/baseline_k.py` | 786.5 | evolved shop-led, wheat opening |
+| **v21** | `agents/baseline_n.py` | **810.4** | capacity-gated shop-led |
+
+v21 displaced v18 (786.5) on 2026-08-15 under the promotion rule -- a benchmark
+is only replaced by an agent holding a **higher live rating**, never by one that
+merely looks better locally. v18 stays on disk as `baseline_k.py` for reference.
 
 They are `lab.pool.BENCHMARKS`, they head `POOL`, and they are both in
 `SEARCH_POOL` so parameter search optimises against them directly. Beating both

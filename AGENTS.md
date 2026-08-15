@@ -659,18 +659,38 @@ figure overstates the dung and understates the feed. The dated version is
 currently reachable only in ledger mode; it is a change worth measuring on the
 shipped model in its own right.
 
-### Where it stands
+### The joint re-fit was run, and the ledger still loses
 
-Not disproven, but it has not earned a default, and the reading is that this is
-a **re-fitting** problem rather than a modelling one: chain pricing roughly
-doubles crop values and the ledger raises a day-0 cow from $2,840 to $7,913,
-while `plant_commitment_cost`, `land_weight`, `job_weight`, the action-cost
-floor and cap, and the hard `max(50.0, ...)` job floors were every one of them
-fitted against season-total pricing. `lab/evolve.py --start` now begins a
-search from a ledger agent and grows `ledger_drain_weight` and
-`ledger_rival_weight` into its space. If a joint search from there does not
-clear control, record the ledger as rejected and spend the effort on reactive
-planting and the endgame instead.
+The re-fitting hypothesis was the right one and it was not enough. Five
+generations of `lab/evolve.py --start` from a ledger agent, then all three arms
+measured at 40 seeds against the benchmarks:
+
+| arm | search | holdout | margin |
+| --- | --- | --- | --- |
+| **control (shipped)** | **0.875** | **0.825** | **+$8,738** |
+| evolved params, ledger **off** | 0.044 | 0.037 | -$21,467 |
+| evolved params, ledger **on** | 0.619 | 0.594 | +$5,609 |
+
+Read the middle row first: the evolved parameters are **catastrophic without
+the ledger**. They were fitted to its value scale, so the set is not a general
+improvement that happens to include a ledger -- it is a set that only makes
+sense with one. The ledger is worth **+$27,076** to its own co-fitted
+parameters, which is the cleanest evidence that the model does real work.
+
+And it still does not clear the shipped agent: 0.594 / +$5,609 against 0.825 /
++$8,738. So **the ledger is not adopted.** It went from -$3,492 to +$5,609
+under joint search and remains $3,129 and 0.23 win rate short.
+
+One caveat recorded honestly rather than acted on: `evolve` searched against
+its default pool (`baseline_j`, `baseline_b`), where it reached +$14,600 held
+out, and only +$5,609 of that transferred to the benchmarks. That is opponent
+overfitting, and the fix is *not* to re-run the search against the benchmarks
+themselves -- that would fit the thing we validate on. It is the same warning
+the pool-saturation note makes: the local pool is not the field.
+
+Do not restart this from scratch. The mechanism is sound and measured; what it
+lacks is a reason to believe another tuning round closes a $3k gap that four
+hand-tuned weights and a joint search did not.
 
 ## Settled, so nobody re-litigates them
 

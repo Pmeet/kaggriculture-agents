@@ -194,12 +194,29 @@ ledger weights into its search space so the whole set can be re-fitted jointly
 — which is what `AGENTS.md` says a structural change requires, and what turned
 the shop-led economy from -$4,011 into +$2,161 the last time.
 
-### Verdict for now
+### Verdict: not adopted
 
-Ledger pricing stays **off**. It is not disproven, but it has not earned a
-default, and the honest reading is that it is a re-fitting problem rather than
-a modelling one. The next attempt should be a joint search from a ledger start,
-not another hand-tuned weight.
+The re-fitting hypothesis was tested and was not enough. Joint search from a
+ledger start, then all three arms at 40 seeds against the benchmarks:
+
+| arm | search | holdout | margin |
+| --- | --- | --- | --- |
+| **control (shipped)** | **0.875** | **0.825** | **+$8,738** |
+| evolved params, ledger **off** | 0.044 | 0.037 | -$21,467 |
+| evolved params, ledger **on** | 0.619 | 0.594 | +$5,609 |
+
+The ablation is the interesting row: the evolved parameters are catastrophic
+*without* the ledger, so they are not a general improvement — the ledger is
+worth +$27,076 to its own co-fitted set. The model does real work. It just does
+not beat the shipped agent, falling $3,129 and 0.23 win rate short after four
+hand-tuned weights and a joint search.
+
+Ledger pricing stays **off**, and `main.py` ships unchanged. Effort moves to
+steps 2 and 3, where the ladder evidence is stronger than anything local.
+
+Its own search overfit its pool — +$14,600 held out against `baseline_j` and
+`baseline_b`, +$5,609 against the benchmarks. Re-running the search against the
+benchmarks would fit what we validate on, so it was not done.
 
 ### Also fixed along the way
 

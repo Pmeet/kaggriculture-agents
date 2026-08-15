@@ -343,49 +343,39 @@ trades that sequencing away for jobs that happen to sum higher today.
 heuristic.** Ships off. Do not "fix" it again without first replacing the
 per-turn score with one that prices the whole commitment.
 
-## Always score a candidate against the *newest* strong agents too
+## Pre-ship checklist
 
-A candidate scored only against the standing benchmarks is not fully tested:
-those are deliberately frozen, so an agent two or three revisions newer has
-never faced the thing it actually has to beat. v22 was shipped having been
-measured against v15 and v18 alone. Checked afterwards against v21 and v20 it
-does hold up -- +$6,181 and +$11,295, 0.825 held out over 80 games each -- but
-that was luck, not method.
+Run these in order. The first step is the one that keeps every later number
+honest, and it is the one that was being skipped.
 
-**Before shipping, run the candidate against the previous two submissions as
-well as the benchmarks.** The control is worth including: v21's own parameters
-score exactly +$0 against `baseline_n`, which is the cheapest possible proof the
-harness is comparing what it claims to.
+1. **Refresh the benchmarks from the ladder.**
+   `python lab/benchmarks.py --refresh`
+   It ranks our own submissions by live rating, drops any with fewer than 25
+   games so a fresh 600-seed cannot displace a proven agent, keeps only those
+   with a frozen snapshot, and writes `lab/benchmarks.json`, which `lab/pool.py`
+   reads. Hand-picking a benchmark pair goes stale the moment a newer agent
+   climbs past it, and then every measurement is taken against something we have
+   already beaten.
+2. **Score the candidate against them**, at 40 seeds or more.
+   `python lab/ab.py --seeds 40 --opponent benchmarks --variant 'cand:{}'`
+3. `python -m unittest discover -s tests` and `python -m ruff check .`
+4. `python lab/checks/validate.py` -- zero issues, every game DONE, nothing
+   unsold in the shed.
+5. `python lab/pool.py 20` as a regression check, not a steering signal.
+6. `python lab/phases.py` if the change is meant to affect a particular phase.
 
-And note what a small sample does here. The same v22 measured over 5 seeds gave
+**Forty seeds is the floor.** The same candidate measured over 5 seeds scored
 0.900 on one seed set and 0.750 on the other -- a 0.15 swing between two 20-game
-samples. Forty seeds is the floor for a decision.
+samples. Twenty games decides nothing here.
 
-## The two standing benchmarks: v15 and v21
+### What the ranking costs
 
-**Every future candidate is measured against these two before anything else.**
-They are the only opponents whose strength is confirmed by the *ladder* rather
-than by us, and they are deliberately two different economies rather than two
-tunings of one:
-
-| | file | peak live rating | economy |
-| --- | --- | --- | --- |
-| **v15** | `agents/baseline_j.py` | 753.5 | melon capital pump, livestock-led |
-| **v21** | `agents/baseline_n.py` | **810.4** | capacity-gated shop-led |
-
-v21 displaced v18 (786.5) on 2026-08-15 under the promotion rule -- a benchmark
-is only replaced by an agent holding a **higher live rating**, never by one that
-merely looks better locally. v18 stays on disk as `baseline_k.py` for reference.
-
-They are `lab.pool.BENCHMARKS`, they head `POOL`, and they are both in
-`SEARCH_POOL` so parameter search optimises against them directly. Beating both
-means beating two distinct ways of playing, not one lineage with a knob moved.
-
-Adding them un-saturated the gauntlet, which is the whole point: MEAN fell from
-0.990 to 0.897 and WORST from 0.938 to 0.500, because for the first time the
-pool contains opponents that are actually our equals. Keep them frozen. Add a
-third only when a new agent holds a **higher live rating** than either -- not
-because it looks better locally.
+Ranking benchmarks by rating buys currency and loses variety: v21 and v20 are
+both shop-led descendants of one another, where the old hand-picked pair
+deliberately held one melon economy and one shop-led. `MELON_FOIL`
+(`agents/baseline_j.py`) therefore stays in the wider `POOL` permanently even
+when its rating drops it out of the benchmark pair -- it is the only opponent
+left that plays a genuinely different game.
 
 ## Layer 0: measure phases, not games (`lab/phases.py`)
 

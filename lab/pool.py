@@ -12,6 +12,7 @@ our 212-269) and won every game where they accumulated fewer (0, 0, 112).
 
 from __future__ import annotations
 
+import json
 import os
 import statistics
 import sys
@@ -32,23 +33,39 @@ def variant(params, name, module="agents.v3"):
 # candidate is measured against these before anything else: they are the only
 # opponents whose strength is confirmed by the ladder rather than by us.
 #
-#   v15 (baseline_j) -- melon capital-pump economy, peak 753.5
-#   v21 (baseline_n) -- capacity-gated shop-led economy, peak 810.4
+# Refreshed from the live leaderboard by `lab/benchmarks.py --refresh`, which
+# ranks our own submissions by rating, requires a minimum number of games so a
+# fresh 600-seed cannot displace a proven agent, and keeps only those with a
+# frozen snapshot on disk. Hand-picking went stale the moment a newer agent
+# climbed past the chosen pair, and then every measurement was being taken
+# against something we had already beaten.
 #
-# They are deliberately *different economies*, not two versions of one idea, so
-# beating both means beating two distinct ways of playing rather than one
-# lineage with a tuning change. Keep them frozen.
-#
-# v21 replaced v18 (baseline_k, peak 786.5) on 2026-08-15 under the promotion
-# rule: a benchmark is only displaced by an agent holding a **higher live
-# rating**, never by one that merely looks better locally. v18 is kept on disk
-# for reference but is no longer a yardstick.
-BENCHMARKS = [
-    {"module": "agents.baseline_j", "attr": "agent", "name": "v15-melon"},
-    {"module": "agents.baseline_n", "attr": "agent", "name": "v21-capgated"},
-]
+# Run the refresh **before shipping**, not after.
+def _load_benchmarks():
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "benchmarks.json")
+    try:
+        with open(path) as handle:
+            loaded = json.load(handle)
+    except (OSError, ValueError):
+        loaded = []
+    if not loaded:
+        # Only if the file is missing: the melon economy, which is the most
+        # different thing we have ever shipped.
+        return [{"module": "agents.baseline_j", "attr": "agent", "name": "v15-melon"}]
+    return loaded
+
+
+BENCHMARKS = _load_benchmarks()
+
+# The melon capital-pump economy stays in the wider pool even when its rating
+# drops it out of the benchmark pair. It is the only surviving opponent that
+# plays a genuinely different game, and the benchmarks are now all shop-led
+# descendants of one another -- ranking by rating buys currency at the cost of
+# variety, so the variety has to come from here.
+MELON_FOIL = {"module": "agents.baseline_j", "attr": "agent", "name": "v15-melon"}
 
 POOL = BENCHMARKS + [
+    MELON_FOIL,
     "starter",
     {"module": "agents.v1", "attr": "agent", "name": "crop-only"},
     {"module": "agents.baseline_a", "attr": "agent", "name": "baseline_a"},

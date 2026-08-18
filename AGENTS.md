@@ -236,6 +236,65 @@ the deficits reached in valuation sit below T=450 and the damage comes from
 carrot's target going 0.20 -> 1.00, which lifts the whole curve rather than just
 the runaway tail. Measure before believing a fix.
 
+## Animals bought, carried, and never delivered -- fixed, +$25k
+
+The walking measurement said the lever was routing. It was not, and the way that
+came apart is worth keeping.
+
+**Pricing the walk higher is strictly worse.** Sweeping the parameters that exist
+for exactly this, over 16 seeds against v21 and v22:
+
+| variant | search score | margin | holdout |
+| --- | --- | --- | --- |
+| control | 0.641 | +$4,965 | 0.656 |
+| `action_cost_scale` 0.75 | 0.078 | -$21,534 | 0.109 |
+| `action_cost_scale` 1.0 | 0.016 | -$26,405 | 0.000 |
+| `action_cost_floor` 16 | 0.008 | -$28,249 | 0.000 |
+| `action_cost_floor` 24 | 0.359 | -$4,402 | 0.375 |
+
+So walking was never mispriced. Splitting the work by tile type found the real
+shape: animal tiles carry four jobs a day, so a unit parked on a herd works
+without moving. THUNDER THUNDER does **949 animal jobs at 0.39 tiles each**; we
+did **386 at 1.53**. Our herd is *tighter* than theirs (spread 1.12 against
+2.08) -- it was simply five animals against fourteen. The walking was downstream
+of the herd.
+
+**The herd was small because animals were bought and never delivered.** Tracing
+every purchase: seed 2 bought 17, placed 9, and finished with ten animals *in
+units' hands* against ten empty pens. Two bugs in series:
+
+1. The PLACE job required stock in the **shed**. PICKUP empties the shed, so the
+   job vanished on the very next turn and stranded the carrier.
+2. Animals are not in `PRODUCTS`, so neither the carry-limit drop nor the
+   filler-assignment guard noticed a unit holding one. It wandered off doing
+   filler work with a cow in hand, for the rest of the game.
+
+Fixed by counting carried animals when building the job, and by committing a
+unit that holds one to the nearest matching pen. Every animal now lands: seed 2
+goes from 9 placed to 15, on the board from day 16.
+
+| | before | after |
+| --- | --- | --- |
+| score vs v21, v22 (24 seeds) | 0.641 | **0.990** search / **1.000** held out |
+| margin | +$4,965 | **+$24,544** / **+$28,696** |
+| jobs done per game | 1,936 | 2,386 |
+| working share of actions | 27.5% | 33.6% |
+| walk per job | 2.02 | 1.66 |
+| idle share | 16.9% | 10.6% |
+| `validate.py` stranded livestock | 4 cows + 7 sheep | **none** |
+
+Dispersion, on the discipline above: mu +$27,721 sigma $14,512 (mu/sigma 1.91,
+Phi 0.972) against v21; mu +$21,367 sigma $12,653 (1.69, Phi 0.954) against v22.
+Worst local game banks $58,243, where the ladder left tail used to reach $10k.
+Phi tracks the observed win rate closely, so the model is calibrated here.
+
+**Read the 0.99 with trap 5 in mind.** The local pool is saturated again; this
+says the change is not a regression and that the left tail moved, not that it is
+worth 30 rating points. The ladder decides.
+
+Still short of the top agents: 33.6% working against THUNDER's 41.2%, and 1.66
+walk per job against 1.02. The remaining gap is now mostly crop-side routing.
+
 ## The action budget is the binding constraint (`lab/effort.py`)
 
 Measured 2026-08-19 against replay 91537598, both seats ~3,200. Classify every
@@ -822,12 +881,9 @@ thing per phase table.
   whether the bad games correlate with an unlucky draw against what we planted,
   and if so hold planting capacity back to respond to the actual draw rather
   than spending it all on the prior.
-- **Stranded livestock, ~$5k a game, on half of all seeds.** `lab/checks/
-  validate.py` reports 4 cows + 7 sheep and 4 cows + 6 sheep sitting unplaced in
-  the shed on seeds 1 and 2, while games elsewhere finish with a dozen *empty*
-  pastures. Capital that was bought, never placed, and never earned. The old
-  note below says stranding was accidentally protecting us from crashing wool --
-  that was measured before the demand forecast existed and should be re-tested.
+- ~~**Stranded livestock, ~$5k a game.**~~ **Closed 2026-08-19** -- the cause was
+  the PLACE job vanishing when PICKUP emptied the shed, plus nothing holding a
+  unit to an animal it was carrying. `validate.py` now reports no stranding.
 - **The pool needs a real opponent.** Everything in it is our own lineage, and
   we beat all of it. Reconstruct an archetype from a 3,200-rated replay --
   strawberry+wheat at scale over 13 animals -- or the next tuning round fits

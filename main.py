@@ -1164,10 +1164,20 @@ def build_jobs(obs, farm, private, params, depots, day, hours_left, endgame, inf
             add(pos, ["CARE"], unit_price * 0.8, "CARE")
 
     # ---- Empty structures holding stock we already paid for.
-    if not endgame:
+    # Count animals already in a unit's hands, not just the shed. PICKUP empties
+    # the shed, which used to delete this job on the very next turn and strand
+    # the carrier: it walked off holding a cow that no longer had anywhere to go.
+    carried_animals = {}
+    for unit_inv in private.get("inventories", ()):
+        for name in ANIMALS:
+            n = unit_inv.get(name, 0)
+            if n > 0:
+                carried_animals[name] = carried_animals.get(name, 0) + n
+    if not endgame or carried_animals:
         for pos, kind in info["empty_structures"]:
             for name, spec in ANIMALS.items():
-                if spec["structure"] != kind or shed.get(name, 0) <= 0:
+                available = shed.get(name, 0) + carried_animals.get(name, 0)
+                if spec["structure"] != kind or available <= 0:
                     continue
                 # An unplaced animal is dead capital; realising it beats planting.
                 worth = animal_profit(name, day, market_inventory,
@@ -1699,12 +1709,39 @@ def assign_units(units, jobs, depots, hours_left, seeds, params, shed, endgame,
             continue
         en_route.setdefault(tuple(job["pos"]), []).append(ji)
 
+    # A unit that has picked up an animal is committed to placing it. Animals are
+    # not in PRODUCTS, so neither the carry-limit drop nor the filler-assignment
+    # guard notices one, and a unit re-assigned mid-delivery carries the animal
+    # for the rest of the game while its pen stands empty. Measured on seed 2:
+    # ten animals in hand at the final step against ten empty pens, ~$4.6k of
+    # livestock bought, picked up, and never delivered.
+    place_targets = {}
+    for job in jobs:
+        if job["kind"] == "PLACE" and len(job["action"]) >= 2:
+            place_targets.setdefault(job["action"][1], []).append(tuple(job["pos"]))
+    claimed_pens = set()
+
     actions = []
     # Each DROP this turn eats into the same shed, so the room left has to be
     # tracked across units: checking every unit against the turn's opening
     # total let several drops overflow together and discard produce.
     room = max(0, SHED_CAPACITY - shed_total)
     for ui, (pos, inv) in enumerate(units):
+        # Deliver a carried animal before anything else. See place_targets above.
+        held_animal = next((k for k in ANIMALS if inv.get(k, 0) > 0), None)
+        if held_animal and place_targets.get(held_animal):
+            free = [t for t in place_targets[held_animal] if t not in claimed_pens]
+            if free:
+                target = min(free, key=lambda t: distance(pos, t))
+                claimed_pens.add(target)
+                if tuple(pos) == target:
+                    actions.append(["PLACE", held_animal, 1])
+                    continue
+                move = step_toward(pos, target)
+                if move:
+                    actions.append(move)
+                    continue
+
         # A unit that keeps working while loaded is carrying produce it cannot
         # sell: the shed only receives it at nightfall, and anything past the
         # cap is discarded on the spot. Measured at roughly $5.2k a game, mostly

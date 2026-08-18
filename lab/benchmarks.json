@@ -1,12 +1,12 @@
 [
   {
-    "module": "agents.baseline_n",
-    "attr": "agent",
-    "name": "v21@805"
-  },
-  {
     "module": "agents.baseline_m",
     "attr": "agent",
     "name": "v20@789"
+  },
+  {
+    "module": "agents.baseline_n",
+    "attr": "agent",
+    "name": "v21@769"
   }
 ]

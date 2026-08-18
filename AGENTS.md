@@ -1,6 +1,6 @@
 # Kaggriculture Agent Handoff
 
-Last updated: 2026-08-12 (Asia/Calcutta)
+Last updated: 2026-08-19 (Asia/Calcutta)
 
 Durable handoff for any agent continuing this work. Read with `README.md` and
 `ROADMAP.md`.
@@ -38,13 +38,27 @@ them. Steer on head-to-head paired bank margin against the last frozen snapshot
 
 ### The ladder is the only honest signal, and it says we are mid-pack
 
-Read on 2026-08-11 from the live API. **Rank 1929 of 3809; rating 717.7 against
-a median of 726.9 and a leader at 3192.8.** Matchmaking pairs us with agents
-rated 437-924, and across the 52 completed games of our two live submissions we
-are **28-24 (0.54)**. Our banks in those games run $24k-$121k -- a left tail that
-never appears locally, where the same agent banks a tight $76-93k.
+Read **2026-08-19** from the live API. **Rank 2529 of 5202; rating 769.2**
+against a field median of 741.5 and a leader at 3182.0. Local gauntlet ~1.0,
+ladder ~0.46. Trust the ladder.
 
-So: local score ~1.0, ladder score ~0.54. Trust the ladder.
+Percentile has not moved in eight days: 1929/3809 on 08-11 was the 51st
+percentile, 2529/5202 today is the 49th. The rating rose 717.7 -> 769.2 and
+bought nothing, because the whole field rose with it.
+
+**The distribution is what matters, and it is bimodal.** Median 741.5, but p75
+is 1648.1 and p90 is 2225.4. Half the board is parked near 740 (single or
+abandoned submissions); the real competition starts around 1600. We are at the
+top of the parked half, not the bottom of the serious one.
+
+| target | rating needed | ours |
+| --- | --- | --- |
+| top 5 (the goal) | ~2,920 | 769.2 |
+| top 100 | 2,677.2 | |
+| top 500 | 2,240.6 | |
+
+Closing that is not a tuning problem. Nothing in the parameter-search layers
+moves a rating by 4x.
 
 ### What the 3,200-rated agents actually do
 
@@ -75,48 +89,57 @@ looks like.
 
 ### Live submissions
 
-Read 2026-08-14. Active pair is **v19 (55503782)** and **v18 (55465607)**; v17
-aged out. Frozen copies: v18 = `agents/baseline_k.py`, v19 = `agents/baseline_l.py`.
+Read 2026-08-19. Active pair is **v21 (55512749)** and **v22 (55521764)**.
+Frozen copies: v21 = `agents/baseline_n.py`, v22 = `agents/baseline_o.py`.
 
-| | games | record | rating | worst bank | median bank |
+| | games | record | rating | median bank | opp mean bank | mean opp rating |
+| --- | --- | --- | --- | --- | --- | --- |
+| v20 | 38 | 22-16 (0.58) | 788.8 | $66,817 | $69,791 | 746 |
+| v21 | 95 | 43-52 (**0.45**) | 769.2 | **$75,088** | **$82,303** | 796 |
+| v22 | 85 | 40-45 (0.47) | 763.7 | $71,284 | $80,466 | 778 |
+| v18 | 56 | 30-26 (0.54) | 767.7 | $70,100 | $70,027 | 747 |
+
+Read the first two columns together and the agent looks broken: **v21 has the
+highest median bank we have ever put on the ladder and the worst record.** It is
+not broken. It is playing a different field.
+
+### The field is inflating faster than we are improving
+
+The controlled version, which removes every confound because the agent is frozen
+code: split v21's own 95 games by day.
+
+| day | games | mean opp rating | our bank | opp bank | rate |
 | --- | --- | --- | --- | --- | --- |
-| v19 | 31 | 16-15 (0.52) | 717 | **$42,524** | $70,354 |
-| v18 | 56 | 30-26 (0.54) | 704 | $19,963 | $70,794 |
+| 08-14 | 35 | 785 | $77,539 | $75,960 | 0.57 |
+| 08-15 | 18 | 826 | $69,695 | $92,063 | 0.28 |
+| 08-16 | 18 | 776 | $71,853 | $69,816 | 0.67 |
+| 08-17 | 16 | 816 | $76,872 | $90,298 | 0.25 |
+| 08-18 | 8 | 788 | $68,311 | **$100,197** | 0.25 |
 
-**The left tail has halved.** v19's worst game banks $42.5k where v18's banks
-$20k, against the same median. That was the largest structural problem on the
-ladder and the proportional reserve plus the commitment-priced assignment
-between them appear to have fixed most of it.
+Compare the first and last rows. **Opponents rated 785 banked $75,960 on 08-14;
+opponents rated 788 banked $100,197 on 08-18** -- the same rating buys a 32%
+stronger economy four days later. Our own bank is flat across the whole table.
+v22 shows the same drift over its shorter life ($79,011 -> $85,066 opponent
+bank, 0.53 -> 0.29).
 
-**The margins did convert; the win rate is a different problem.** Split the
-ladder games by result:
+Three consequences, and the third is the expensive one:
 
-| | winning margin (mean) | losing margin (mean) | decided by < $10k |
-| --- | --- | --- | --- |
-| v19 | **+$22,618** | **-$16,289** | 39% |
-| v18 | +$16,411 | -$20,545 | 39% |
-
-v19 wins bigger *and* loses smaller than v18 on real opponents, so the local
-gains are showing up. What has not moved is the win/loss split, because **39% of
-ladder games are decided by under $10,000**. A general margin improvement
-spreads itself across every game instead of converting the marginal ones, and
-the record is decided by that pile of coin-flips.
-
-So the lever for rating is no longer "bank more" -- it is **win the close games**.
-Endgame precision is where a few thousand dollars changes a result: stranded
-livestock, an unfilled pen, a weed left standing, a last-day sale mistimed. Each
-is worth little on average and could be worth a game in the 39%.
-
-v19 also has only 31 games to v18's 56, and ratings converge slowly, so some of
-the gap is simply youth.
-
-**Also read the win rates.** Locally v19 beats v15 by $10,184 and v18 by $6,922
-over the season, at 0.70-0.82 paired score. On the ladder it plays 0.52 against a
-field averaging 737, barely apart from v18's 0.54. Large local margins are
-converting into very little win rate against real opponents -- and win rate is
-what the rating is made of. That gap is now the central open question, and it is
-the same shape as the very first one this project hit: the local pool, even a
-ladder-proven one, is not the field.
+1. **A rating is only comparable to ratings earned the same week.** v20's 788.8
+   was won against a 746 field and has been frozen since 08-15; v22's 763.7 is
+   being marked to a 778 field today. Ranking them against each other, which is
+   exactly what `lab/benchmarks.py` does, silently prefers the older agent. The
+   minimum-games guard does not help -- it makes it worse, by favouring agents
+   that have stopped playing.
+2. **Standing still loses ground.** Percentile is flat over eight days while the
+   rating climbed 50 points. Any week without a shipped improvement is a week of
+   decline.
+3. **Incremental margin work has stopped paying.** The prior read said the lever
+   was "win the close games", because 39% were decided by under $10k and we were
+   level with the field on banks. That was true on 08-14 and is not true now: at
+   v21's last measured day we are outbanked by **$31,886 on average**, and only
+   25% of its games are close. There is no endgame precision worth $32k. The
+   lever is back to economy, and it is the crop economy -- see the wheat line in
+   *Open leads*, still 28 sold against the top agents' 433.
 
 ## Audit: which gates decide on one factor
 
@@ -476,6 +499,17 @@ deliberately held one melon economy and one shop-led. `MELON_FOIL`
 (`agents/baseline_j.py`) therefore stays in the wider `POOL` permanently even
 when its rating drops it out of the benchmark pair -- it is the only opponent
 left that plays a genuinely different game.
+
+**And ranking by rating compares across eras, which is not sound while the field
+is inflating.** A rating is a mark against the opponents an agent actually
+played, so a submission that stopped playing on 08-15 keeps a number earned
+against a 746 field, while one still playing is marked to a 778 field today. The
+`--min-games` guard makes this worse rather than better: it favours agents with
+long histories, which are the ones whose histories are stalest. Until this is
+fixed, read `lab/benchmarks.py` output alongside each agent's *mean opponent
+rating* (in the Live submissions table) and discount an old high rating
+accordingly. The honest comparison is a direct local head-to-head, which is what
+`lab/ab.py --opponent recent` gives.
 
 ## Layer 0: measure phases, not games (`lab/phases.py`)
 

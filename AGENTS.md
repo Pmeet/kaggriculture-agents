@@ -141,6 +141,56 @@ Three consequences, and the third is the expensive one:
    lever is back to economy, and it is the crop economy -- see the wheat line in
    *Open leads*, still 28 sold against the top agents' 433.
 
+## The action budget is the binding constraint (`lab/effort.py`)
+
+Measured 2026-08-19 against replay 91537598, both seats ~3,200. Classify every
+unit-action in a game as movement, idle, or work:
+
+| | actions | moving | idle | **working** | tiles walked per job |
+| --- | --- | --- | --- | --- | --- |
+| THUNDER THUNDER | 6,996 | 42.3% | 16.5% | **41.2%** | **1.02** |
+| HealthStone | 6,873 | 52.8% | 9.4% | 37.8% | 1.39 |
+| ours (v22) | 7,042 | 55.6% | 16.9% | **27.5%** | **2.02** |
+| ours (v21) | 6,979 | 56.2% | 16.4% | 27.4% | 2.05 |
+
+We take the same number of actions and convert **1,936** into work against
+THUNDER's **2,884** -- 49% more work from an identical budget. The two rivals
+fail differently, so the levers are independent: THUNDER routes well, HealthStone
+routes no better than us but almost never idles a unit. Both together would be
+~48% working, about **3,400 productive actions, +76% on ours**.
+
+This subsumes several things previously filed as separate problems. We harvest
+203 times to their 389, feed 114 to their 312, and issue **zero** FERTILIZE
+actions to their 70 -- not because those gates are mistuned but because there was
+never any labour left. Fix the walking before re-tuning anything downstream of it.
+
+## The market has depth, and it differs per product by 60x (`lab/depth.py`)
+
+Selling adds to a shared inventory and walks the price down `above_func`. That
+shape, not the base price, decides whether a product can absorb volume:
+
+| shape | products | price after selling 400 | avg $/unit |
+| --- | --- | --- | --- |
+| `log` | wheat, egg | **80% of base** | 21 / 41 |
+| `sqrt` | carrot, tomato | 34% / 15% | 20 / 26 |
+| `linear` | strawberry, milk | floor by ~100 units | 10 / 16 |
+| `sq` | wool, melon | floor by ~60 units | 21 / 67 |
+
+Two consequences we are currently on the wrong side of:
+
+1. **We match the top agents only where the market cannot absorb volume.** Sell
+   requests: melon 112 against their 108 (parity, and melon is `sq`); wheat 215
+   against 433, milk 119 against 250, wool 0 against 132. We have tuned hardest
+   against a ceiling and left the ceiling-free products at half.
+2. **Pricing a tile at the current price over-plants thin markets**, because the
+   current price is the first unit's price. Melon's first 100 units earn $21,721;
+   the next 300 earn $5,006 total. Our agent holds 21 melon tiles and unloads them
+   late, walking its own price from $277 on day 21 to $4 by day 27.
+
+Wheat is the opposite case and is chronically under-supplied by *both* farms: in
+that replay it finished 436 units below equilibrium with the price risen 25 ->
+46, while the two best agents on the board sold 431 and 433 into it.
+
 ## Audit: which gates decide on one factor
 
 A sweep of every parameter used as a threshold, looking for decisions taken on a
@@ -646,9 +696,18 @@ thing per phase table.
 
 ## Open leads
 
-- **Wheat.** The top agents sell 433 a game; we sell 28, and the market still
-  ends 1,158 units below equilibrium with the price high. The demand forecast
-  moved strawberry but not wheat. This is the largest single line item left.
+- **Walking, ~950 productive actions a game.** The largest single gap measured
+  against the ladder, and a prerequisite for most of the items below -- see *The
+  action budget is the binding constraint*. Keep a unit working a compact area
+  for several turns instead of sending the cheapest unit to the best-scoring job.
+- **Fertiliser is switched off entirely.** Zero FERTILIZE actions; we collect 139
+  and offer 138 for sale into a market we have already glutted at ~$46. Applied to
+  watered wheat it is 4 units -> 6 on the same land and seed. The engine only
+  grants the bonus on a day the tile was also watered, so the two are complements.
+- **Wheat.** The top agents sell 433 a game; we request 215 and, on the older
+  pre-forecast agent, sold 28. The market still ends hundreds of units below
+  equilibrium with the price risen. Cheapest crop, fastest cycle (5 days), and
+  the only one still investable after about day 24.
 - **The left tail — now the biggest open problem.** Ladder banks run $10k-$121k
   where the same agent banks a tight $55-60k locally against a mirror. v15's
   first three games already contain a $10,784 game; v14's recent losses bank

@@ -295,6 +295,53 @@ worth 30 rating points. The ladder decides.
 Still short of the top agents: 33.6% working against THUNDER's 41.2%, and 1.66
 walk per job against 1.02. The remaining gap is now mostly crop-side routing.
 
+## Crop-side routing: two negative results and one small win
+
+Continuing after v23. The remaining action-budget gap is crop-side -- HARVEST at
+1.95 tiles a job against THUNDER's 0.91, PLANT 1.13 against 0.64, while WATER is
+already level (1.59 against 1.55). Two attempts failed and are recorded so they
+are not retried.
+
+**Chaining same-tile jobs does not pay.** THUNDER clears an animal tile in one
+visit -- CARE 0.16 tiles a job, COLLECT_FERTILIZER 0.14 -- where we visited the
+same animal three times (1.47 and 1.14). Bonusing distance-0 jobs by a multiple
+of `action_cost` moves that metric convincingly (CARE 1.47 -> 0.73 at a bonus of
+30) and **still loses money**: -$5,445 against v23 at a bonus of 2.0, and the
+bank falls monotonically as the bonus rises. Total walk per job barely moves
+(1.55 -> 1.48) because travel is conserved -- chaining only decides which job
+gets the free slot, and it spends it on the cheap one. `same_tile_bonus` stays in
+`DEFAULTS` at 0.0 so the result is not rediscovered.
+
+**A caution about the instrument.** The first sweep of this showed identical
+numbers at every bonus value, because `agent` captures its params at import and
+mutating `DEFAULTS` afterwards changes nothing. Sweep through `make_agent`, the
+way `lab/ab.py` does, or measure a constant.
+
+**Crew size had gone stale, and that is the win.** `max_hands` 11 was optimal on
+a five-animal farm. v23 puts fifteen animals on the board, each carrying four
+jobs a day, and the optimum moved to **13**:
+
+| max_hands | vs v23, 20 seeds a side | 32 seeds a side |
+| --- | --- | --- |
+| 11 (v23) | +$0 | +$0 |
+| **13** | **+$1,849 / +$3,209 held out** | **+$1,181 / +$2,532 held out** |
+| 15 | -$3,339 | |
+| 17 | -$6,389 | |
+
+Hands cost `fib(n)` per day, so the 14th and 15th cost $610 and $987 each on
+their own -- which is why the curve turns over so sharply. Searching around 13
+found nothing better: `hire_value_frac` 2.2 ties it, 1.2 and `move_factor` 3.0
+and 3.9 are all worse.
+
+Shipped as v24. It is a modest gain -- ~+$2-3k against v23, against v23's own
++$28.7k over v22 -- and worth a slot mainly because it displaces v22 from the
+active pair.
+
+**The general lesson, and it will recur.** A parameter fitted before a structural
+fix encodes the farm that existed then. v23 tripled the herd; the first thing to
+re-check after any change that big is every parameter that was tuned against
+throughput. This is trap 4 from *Where things stand* in a new costume.
+
 ## The action budget is the binding constraint (`lab/effort.py`)
 
 Measured 2026-08-19 against replay 91537598, both seats ~3,200. Classify every

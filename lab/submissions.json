@@ -6,5 +6,6 @@
   "55511498": {"label": "v20", "agent": "agents.baseline_m"},
   "55512749": {"label": "v21", "agent": "agents.baseline_n"},
   "55521764": {"label": "v22", "agent": "agents.baseline_o"},
-  "55608558": {"label": "v23", "agent": "agents.baseline_p"}
+  "55608558": {"label": "v23", "agent": "agents.baseline_p"},
+  "55608734": {"label": "v24", "agent": "agents.baseline_q"}
 }

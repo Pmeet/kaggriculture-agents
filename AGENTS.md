@@ -170,6 +170,57 @@ banks jumped from ~$76k on 08-14 to ~$100k on 08-18 against a fixed v21 -- and
 Prefer this explanation to "the field got better at farming" until something
 distinguishes them.
 
+### What staff said, and what a competitor measured
+
+Topic 735311, in full. Bovard (staff): the change makes egg, tomato and carrot
+"increase significantly if there is a large shop demand and no production", with
+stated firing rates **assuming no production** of tomato 50%, carrot 26%, egg 22%
+of games. Intent: "roughly preserve the existing market dynamics, but make these
+products viable in some situations, not universally... more interesting end game
+decisions." Implementation is Kaggle/kaggle-environments PR #1399. **"This should
+be the last change, excepting game breaking bugs."**
+
+destbreso (754th) independently reproduced it over 120 replayed episodes, and
+their numbers change how much we should want this:
+
+- Firing rates land close to stated: tomato 55.0%, carrot 28.3%, egg 25.8%.
+  Melon is the control -- untouched, in no shop menu, 0 of 120 crossings.
+- **The median game is the old game.** Median scarcity sits just *below* each new
+  knee (tomato 219 v 200, carrot 316 v 450, egg 228 v 332), and dumping 100 units
+  at median scarcity pays **1.00x** the old revenue for tomato and egg. It is ~2x
+  at p90, and the large multiples appear only in the deepest game of 120.
+- **Egg never reaches the money**: 1.00x at median and p75, 1.06x at p90.
+- Carrot's `below_target` 0.20 -> 1.00 is real and unannounced -- they flagged the
+  same omission we found independently.
+- Switching build with agent, seed and opponent fixed moved 118 of 224 banks and
+  **changed 0 of 224 winners**. Recorded episodes replay identically on either
+  build, 40 of 40 to the dollar.
+
+So this is a **dispersion change, not a level change**: nothing at the median, a
+long tail in the minority of games with a big shop draw and no producer. Our
+"largest untouched line item" framing was too strong -- it is a conditional tail
+opportunity in roughly a quarter to a half of games, and egg is likely not worth
+chasing at all.
+
+### The objective is Pr[win], not margin -- and that is our open question answered
+
+destbreso's closing point is the most useful thing in the thread. A change that
+adds nothing to the median and much to the tail moves **dispersion**, and
+"dispersion and expectation point different ways depending on whether you are
+ahead or behind". They argue the objective is **Pr[win] = Phi(mu/sigma)** rather
+than expected margin.
+
+That is the answer to the question this file has carried for a week: *why do
+large local margins convert into almost no win rate?* Because we have been
+steering on mu alone while our sigma is enormous -- ladder banks $10k-$121k
+against a tight $76-93k locally. Raising mu by $12k does little to Phi(mu/sigma)
+when sigma is ~$40k; halving sigma does more. **Cutting the left tail is
+mathematically equivalent to a large margin gain, and we have been treating it as
+a lesser, separate problem.**
+
+Practical rule: report mu, sigma and Phi(mu/sigma) together, and never accept a
+change that raises mu while widening sigma more.
+
 ### What we changed, and the trap we walked into
 
 `price_at` in `main.py` now mirrors 1.32.7 exactly (0 mismatches over the whole

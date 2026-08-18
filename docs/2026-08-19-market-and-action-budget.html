@@ -250,11 +250,14 @@
       · v22 vs v21 local, seed 1 · engines 1.32.6 and 1.32.7
     </p>
     <div class="worked" style="margin-top:0.4rem">
-      <b>Updated 19 Aug, after publication.</b> Kaggle shipped a balance change on
-      15 August that we had missed — engine <b>1.32.7</b> — and it reprices exactly
-      the thing this report is about. The action-budget finding below is unaffected.
-      The market section gains a large new opportunity, and one of its lessons
-      promptly cost us $34,044. Both are in <a href="#reprice">the last section</a>.
+      <b>Updated 19 Aug, twice, after publication.</b> Kaggle shipped a balance
+      change on 15 August that we had missed — engine <b>1.32.7</b> — which
+      reprices exactly the thing this report is about; see
+      <a href="#reprice">the postscript</a>. And the top-ranked action below has
+      since been carried out: the diagnosis held, <b>the prescription did not</b>,
+      and the real cause was livestock that was bought and never delivered. Worth
+      <b>+$23,700</b> in margin and a 0.641 → 1.000 win rate locally.
+      <a href="#next">Details in the ranked list.</a>
     </div>
     <div class="board">
       <div><span class="k">Productive actions</span><span class="v">1,936</span>
@@ -555,7 +558,7 @@
 
 <hr class="div" />
 
-<section class="col stack">
+<section class="col stack" id="next">
   <div class="sec-head">
     <span class="eyebrow">What I would do next</span>
     <h2>Ranked by expected value, not by how interesting it is</h2>
@@ -563,13 +566,33 @@
   <ol class="ranked">
     <li>
       <div>
-        <h3>Cut the walking<span class="tag">largest</span></h3>
-        <p>
-          Assign each unit a compact working area and keep it there for several turns,
-          instead of sending whichever unit is cheapest to whichever job scores highest.
-          The prize is ~950 extra productive actions a game, which is what every other
-          item on this list needs in order to be possible.
-        </p>
+        <h3>Cut the walking<span class="tag">done — but not as written</span></h3>
+        <div class="worked">
+          <b>Result:</b> the prescription here was wrong and the diagnosis was right.
+          Pricing the walk higher — the obvious reading — was <b>strictly worse at every
+          setting</b>: score 0.641 → 0.078 at <code>action_cost_scale</code> 0.75, and
+          0.016 at 1.0. Walking was never mispriced.
+          <br><br>
+          Splitting the work by tile type found the real shape. Animal tiles carry four
+          jobs a day, so a unit parked on a herd works without moving — THUNDER does 949
+          animal jobs at <b>0.39 tiles each</b>, we did 386 at 1.53. Our herd was
+          <em>tighter</em> than theirs (spread 1.12 vs 2.08); it was five animals against
+          fourteen. <b>The walking was a symptom of the herd.</b>
+          <br><br>
+          And the herd was small because animals were bought and never delivered: seed 2
+          bought 17, placed 9, and ended with ten animals in units' hands facing ten empty
+          pens. The <code>PLACE</code> job required stock in the <em>shed</em>, so
+          <code>PICKUP</code> deleted the job and orphaned the carrier — and animals
+          aren't in <code>PRODUCTS</code>, so nothing else noticed a unit holding one.
+          <br><br>
+          Fixed: <b>0.641 → 0.990</b> search, <b>1.000</b> held out; margin
+          <b>+$4,965 → +$28,696</b>. Jobs 1,936 → 2,386, working share 27.5% → 33.6%,
+          walk/job 2.02 → 1.66, idle 16.9% → 10.6%. Worst local game now banks $58,243.
+          The validator reports no stranded livestock for the first time.
+          <br><br>
+          Still 33.6% working against THUNDER's 41.2%, so the remaining gap is crop-side
+          routing — a smaller and genuinely harder problem than this one turned out to be.
+        </div>
       </div>
     </li>
     <li>

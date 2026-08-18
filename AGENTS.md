@@ -141,6 +141,50 @@ Three consequences, and the third is the expensive one:
    lever is back to economy, and it is the crop economy -- see the wheat line in
    *Open leads*, still 28 sold against the top agents' 433.
 
+## The ladder moved to 1.32.7 on 2026-08-15, and it repriced scarcity
+
+Found 2026-08-19 from stickied staff topic 735311, "Small balance change"
+(Bovard Doerschuk-Tiberi, 2026-08-15 00:30Z); `kaggle-environments` 1.32.7
+published 01:35Z the same night. **The second time this has happened silently.**
+
+Verified rather than inferred: replay 94245846 (v21, played 08-18) disagrees with
+1.32.6 on five sampled prices and with 1.32.7 on none. The research venv has been
+upgraded; the ladder runs 1.32.7 and so do we.
+
+What changed -- a new `hinge` shape on the **scarcity** side only, for three
+products:
+
+| product | before | after | scarce price at the deficit our games reach |
+| --- | --- | --- | --- |
+| CARROT | `log`, 0.20 | `hinge`, **1.00** | -549: $42 -> **$91** |
+| TOMATO | `linear`, 0.40 | `hinge`, 0.40 | -369: $104 -> **$241** |
+| EGG | `linear`, 0.40 | `hinge`, 0.40 | -550: $83 -> **$152** |
+
+`hinge` is linear in x/T below the knee and picks up a quadratic term (gain 8)
+above it, so price is calm until a product is genuinely scarce and then runs
+away. Crops, animals, lifecycles and every glut-side curve are untouched.
+
+**This is almost certainly what the "field inflation" reading was.** Opponent
+banks jumped from ~$76k on 08-14 to ~$100k on 08-18 against a fixed v21 -- and
+08-15 is when the engine started paying several times more for three products.
+Prefer this explanation to "the field got better at farming" until something
+distinguishes them.
+
+### What we changed, and the trap we walked into
+
+`price_at` in `main.py` now mirrors 1.32.7 exactly (0 mismatches over the whole
+curve; `tests/test_agent.py` pins it). It was wrong for four days, which matters
+because it decides what we sell.
+
+Planting is deliberately **still valued on the pre-1.32.7 curve**, via
+`planting_price`. Letting the new prices drive the crop mix measured
+**-$34,044 a game over six seeds**: the agent front-loads carrot, the livestock
+build slips behind it, and ten pastures finish empty. Note the first mitigation
+tried -- clamping the valuation at the hinge knee -- changed *nothing*, because
+the deficits reached in valuation sit below T=450 and the damage comes from
+carrot's target going 0.20 -> 1.00, which lifts the whole curve rather than just
+the runaway tail. Measure before believing a fix.
+
 ## The action budget is the binding constraint (`lab/effort.py`)
 
 Measured 2026-08-19 against replay 91537598, both seats ~3,200. Classify every
@@ -696,6 +740,12 @@ thing per phase table.
 
 ## Open leads
 
+- **Carrot, tomato and egg after the 1.32.7 reprice.** Nobody on the ladder grows
+  any of the three, so their deficits never close and the hinge keeps paying:
+  carrot $91 and tomato $241 a unit at the deficits our own games already reach,
+  against wheat's $47. Naively re-pricing the planner loses $34k (above), so the
+  question is not "is it worth more" -- it is -- but how to add it without the
+  livestock build slipping. Probably the single largest untouched line item now.
 - **Walking, ~950 productive actions a game.** The largest single gap measured
   against the ladder, and a prerequisite for most of the items below -- see *The
   action budget is the binding constraint*. Keep a unit working a compact area
@@ -756,7 +806,7 @@ over full games), every game `DONE`, p95 turn latency far below the 1s limit
 ## Environment
 
 - Research venv (Linux, fast): `~/.venvs/kaggri` — Python 3.12.13,
-  `kaggle-environments==1.32.6`, `kaggle==2.2.4`. **This is the post-rebalance
+  `kaggle-environments==1.32.7`, `kaggle==2.2.4`. **This is the post-rebalance
   engine the ladder runs. Measure here, and only here.**
 - The Windows `.venv/` in the repo is **stale**: `kaggle-environments==1.32.3`,
   the pre-rebalance engine, untouched since 2026-08-04. It is not a parity

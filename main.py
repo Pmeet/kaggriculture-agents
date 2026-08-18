@@ -64,15 +64,15 @@ PRODUCTS = [
 MARKET_PARAMS = {
     "WHEAT": {"base": 25, "T": 400, "below_func": "sqrt", "below_target": 0.80,
               "above_func": "log", "above_target": 0.20},
-    "CARROT": {"base": 35, "T": 450, "below_func": "log", "below_target": 0.20,
+    "CARROT": {"base": 35, "T": 450, "below_func": "hinge", "below_target": 1.00,
                "above_func": "sqrt", "above_target": 0.70},
-    "TOMATO": {"base": 60, "T": 200, "below_func": "linear", "below_target": 0.40,
+    "TOMATO": {"base": 60, "T": 200, "below_func": "hinge", "below_target": 0.40,
                "above_func": "sqrt", "above_target": 0.60},
     "STRAWBERRY": {"base": 120, "T": 100, "below_func": "sqrt", "below_target": 0.70,
                    "above_func": "linear", "above_target": 1.60},
     "MELON": {"base": 250, "T": 300, "below_func": "log", "below_target": 0.20,
               "above_func": "sq", "above_target": 3.60},
-    "EGG": {"base": 50, "T": 332, "below_func": "linear", "below_target": 0.40,
+    "EGG": {"base": 50, "T": 332, "below_func": "hinge", "below_target": 0.40,
             "above_func": "log", "above_target": 0.20},
     "MILK": {"base": 160, "T": 122, "below_func": "sqrt", "below_target": 0.60,
              "above_func": "linear", "above_target": 1.60},
@@ -297,7 +297,15 @@ DEFAULTS = {
 # Market price model (mirrors the engine exactly)
 # --------------------------------------------------------------------------
 
-def _shape(func, x):
+# "hinge" (engine 1.32.7, 2026-08-15) is linear in x/T below the knee and picks
+# up a quadratic term above it, so a product's price is calm until it is genuinely
+# scarce and then runs away. f(T) == 1 by construction, so `target` keeps the same
+# meaning it has for every other shape. Carrot, tomato and egg use it on the
+# scarcity side; nothing uses it on the glut side.
+HINGE_GAIN = 8.0
+
+
+def _shape(func, x, T=None):
     x = max(0.0, x)
     if func == "linear":
         return x
@@ -307,20 +315,26 @@ def _shape(func, x):
         return math.sqrt(x)
     if func == "log":
         return math.log(1.0 + x)
+    if func == "hinge":
+        if not T or T <= 0:
+            return x
+        u = x / T
+        return u + HINGE_GAIN * max(0.0, u - 1.0) ** 2
     return x
 
 
 def price_at(item, inventory):
     p = MARKET_PARAMS[item]
     base = p["base"]
+    T = p["T"]
     if inventory < MARKET_I0:
         f = p["below_func"]
-        amp = p["below_target"] * base / _shape(f, p["T"])
-        value = base + amp * _shape(f, MARKET_I0 - inventory)
+        amp = p["below_target"] * base / _shape(f, T, T)
+        value = base + amp * _shape(f, MARKET_I0 - inventory, T)
     else:
         f = p["above_func"]
-        amp = p["above_target"] * base / _shape(f, p["T"])
-        value = base - amp * _shape(f, inventory - MARKET_I0)
+        amp = p["above_target"] * base / _shape(f, T, T)
+        value = base - amp * _shape(f, inventory - MARKET_I0, T)
     return max(PRICE_FLOOR, int(round(value)))
 
 
@@ -765,6 +779,37 @@ def sale_horizon(day, occupancy, params):
     return share, share
 
 
+# Engine 1.32.7 (2026-08-15) gave carrot, tomato and egg a "hinge" scarcity
+# curve, and lifted carrot's scarcity target from 0.20 to 1.00. Scarce carrot
+# went from $42 to $91 a unit, tomato from $104 to $241.
+#
+# `price_at` tracks that exactly and must, because it decides what we sell into
+# a spike. Planting is deliberately still valued on the pre-1.32.7 curve. Letting
+# the new prices drive the crop mix measured **-$34,044 a game over six seeds**:
+# the agent front-loads carrot, the livestock build slips behind it, and ten
+# pastures finish the game empty. The opportunity is probably real -- nobody on
+# the ladder grows these three, so the deficit never closes -- but capturing it
+# needs the planner reworked, not a re-priced constant. Measured, not assumed;
+# see the open lead in AGENTS.md.
+LEGACY_SCARCITY = {
+    "CARROT": {"below_func": "log", "below_target": 0.20},
+    "TOMATO": {"below_func": "linear", "below_target": 0.40},
+    "EGG": {"below_func": "linear", "below_target": 0.40},
+}
+
+
+def planting_price(crop, inventory):
+    """Price to plan a *planting* against; see LEGACY_SCARCITY above."""
+    legacy = LEGACY_SCARCITY.get(crop)
+    if legacy is None or inventory >= MARKET_I0:
+        return price_at(crop, inventory)
+    p = MARKET_PARAMS[crop]
+    base, T = p["base"], p["T"]
+    f = legacy["below_func"]
+    amp = legacy["below_target"] * base / _shape(f, T, T)
+    return max(PRICE_FLOOR, int(round(base + amp * _shape(f, MARKET_I0 - inventory, T))))
+
+
 def crop_profit(crop, market_inventory, planted, day, pull=None, params=None):
     """Dollars a tile returns over one planting, at the price we expect to get."""
     cd = CROPS[crop]
@@ -774,7 +819,7 @@ def crop_profit(crop, market_inventory, planted, day, pull=None, params=None):
     supply_share, demand_share = sale_horizon(day, occupancy, params or {})
     in_flight = (planted.get(crop, 0) * units * supply_share
                  - (pull or {}).get(crop, 0) * demand_share)
-    expected = price_at(crop, market_inventory.get(crop, MARKET_I0) + in_flight + units)
+    expected = planting_price(crop, market_inventory.get(crop, MARKET_I0) + in_flight + units)
     return units * expected - cd["seed"]
 
 
@@ -799,7 +844,7 @@ def crop_value(crop, market_inventory, planted, day, money, params, pull=None,
     supply_share, demand_share = sale_horizon(day, occupancy, params)
     in_flight = (planted.get(crop, 0) * units * supply_share
                  - (pull or {}).get(crop, 0) * demand_share)
-    expected = price_at(crop, market_inventory.get(crop, MARKET_I0) + in_flight + units)
+    expected = planting_price(crop, market_inventory.get(crop, MARKET_I0) + in_flight + units)
     profit = units * expected - cd["seed"]
     if profit <= 0:
         return -1.0

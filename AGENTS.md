@@ -379,6 +379,55 @@ stays so the result is not rediscovered.
 over 200 games a seed set. Gate clean: 104 tests, ruff, validator zero issues and
 no stranded livestock, every game DONE, shed empty, p95 1.00ms.
 
+## The route planner: built, measured, and not shipped
+
+The second outside model's recommendation, and the best-argued suggestion we have
+had: stop matching workers to jobs and plan a persistent ordered route per unit
+over the rest of the day, repaired each turn rather than rebuilt.
+
+Its case is strong. Our own exact-matching result -- +$12,421 of assigned job
+value, $25,078 *worse* in the bank -- says the per-turn objective is the defect.
+It also explains why the same-tile bonus failed where routing should not: a bonus
+claims "jobs here are intrinsically better", while a route says "their marginal
+travel is zero but the work action still consumes scarce capacity". Those are
+different claims and the second is right.
+
+**Built as `plan_routes`, behind `route_planner`. It measures -$32,675 held out
+against v25 at a 0.000 win rate, so it is off and unshipped.**
+
+What works: routes persist across turns via `job_key` and are repaired rather
+than rebuilt; regret insertion places the job that fits in fewest routes first;
+positions are re-costed when an insertion invalidates them. Travel per job falls
+**1.87 -> 1.78**, below the greedy baseline, which is the first time anything has
+moved that number in the right direction.
+
+What is missing, and it is the half that pays:
+
+1. **No rest-of-day forecast.** Routes are planned over *currently visible* jobs
+   only. The design calls for predicting the day's arrivals -- watering days and
+   harvest days are deterministic functions of planting day, animal production is
+   a fixed interval -- and planning over `H = 24 - turn_in_day`. Without it the
+   planner takes on the commitment cost of a route and gets none of the lookahead
+   that is supposed to pay for it.
+2. **No local search.** No move-between-routes, swap, reorder, or
+   destroy-and-rebuild. The design is explicit that this is where the 1000 ms
+   budget should go; we use about 1 ms.
+
+One thing the build did establish. The first version starved five animals a game,
+because a route can rank a FEED fairly on value and still push it past the day's
+budget. Value does not express a deadline. Marking the jobs that are lost outright
+if the day ends -- FEED, and WATER when the plant would die -- and placing them
+before anything chosen on value recovered the herd (7 -> 11 animals) and took
+travel per job below baseline. **That is the time-window half of TOPTW, and any
+future attempt needs it from the start.**
+
+The remaining money gap is not located. Action mix and travel are now close to
+baseline while the bank is roughly halved, which points at something other than
+routing quality.
+
+`route_planner: False` reproduces v25 exactly (+$0 over 40 games), so nothing is
+at risk from the code being present.
+
 ## The continuation term: no effect on margin, double the variance
 
 The most promising suggestion from the outside model, and our own standing

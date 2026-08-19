@@ -351,6 +351,25 @@ DEFAULTS = {
     # Phi(mu/sigma). Kept at 0 with the switch in place.
     "continuation_weight": 0.0,
     "continuation_radius": 3,
+    # Rest-of-day route planning: a persistent ordered job list per unit,
+    # repaired each turn rather than rebuilt. See `plan_routes`.
+    #
+    # **Incomplete, and off.** Measured -$32,675 held out against v25 at a 0.000
+    # win rate. Two of the four components the design calls for are missing, and
+    # they are the two that carry the benefit: routes are planned over
+    # *currently visible* jobs only, with no forecast of the rest of the day, and
+    # there is no local search over the built routes. Planning only over visible
+    # work buys the commitment cost of a route without the lookahead that is
+    # supposed to pay for it.
+    #
+    # The mechanics do work: travel per job falls 1.87 -> 1.78, below the greedy
+    # baseline, and adding same-day deadlines recovered the five animals the
+    # first build starved. The money gap is something else and is not yet
+    # located. Left in place behind the flag because the next attempt should
+    # start from here rather than from nothing.
+    "route_planner": False,
+    "route_max_len": 8,
+    "route_candidates": 60,
     # Take the last window watering before harvesting a one-time crop. It does
     # what it says -- mean peak wheat yield 2.6 -> 3.2 of 4, and 62 of 112 tiles
     # reach 4 where none did before -- and it still **loses**: -$1,367 held out
@@ -1226,7 +1245,9 @@ def build_jobs(obs, farm, private, params, depots, day, hours_left, endgame, inf
             interval = max(1, spec["interval"])
             if since >= 0 and since % interval == 0:
                 value += tile.get("pending_care_bonus", 0) * unit_price
-            add(pos, ["FEED"], value, "FEED", need="WHEAT")
+            # Unfed two days running and the animal escapes, so this is a
+            # same-day deadline, not merely a valuable job.
+            add(pos, ["FEED"], value, "FEED", need="WHEAT", urgent=True)
 
         if (not tile.get("cared_today") and days_left >= 1
                 and (coverage or {}).get(product, 1.0) >= params["care_demand_floor"]):
@@ -1353,7 +1374,8 @@ def build_jobs(obs, farm, private, params, depots, day, hours_left, endgame, inf
             else:
                 pending = max(1, crop_units(crop) - held)
             value += pending * unit_price * 0.8
-        add(pos, ["WATER"], value * params["water_value_scale"], "WATER")
+        add(pos, ["WATER"], value * params["water_value_scale"], "WATER",
+            urgent=bool(must_water))
 
     # ---- Fill empty tiles: livestock pens near the shed, crops further out.
     wanted, by_distance, n_struct = [], [], 0
@@ -1702,8 +1724,171 @@ def _order_pairs(mode, pairs, jobs, n_units, params, seeds, stock, carrying):
     return pairs
 
 
+# --------------------------------------------------------------------------
+# Rest-of-day route planning
+# --------------------------------------------------------------------------
+
+def job_key(job):
+    """Identity of a job across turns, so a route survives a rebuild.
+
+    Jobs are reconstructed from scratch every turn, so persistence needs a key
+    that is stable while the underlying work is. Kind, tile and action together
+    are: a WATER on (3,4) is the same work next turn if it is still offered.
+    """
+    return (job["kind"], tuple(job["pos"]), tuple(job["action"]))
+
+
+def route_cost(start, seq, budget, unit_cost):
+    """Actions a route consumes, and the value it collects, truncated to budget.
+
+    `unit_cost[i]` is any detour the i-th job needs before it can be done (a
+    pickup, say). Returns (actions_used, value, feasible_prefix_length).
+    """
+    used = 0
+    value = 0.0
+    pos = start
+    for i, job in enumerate(seq):
+        step = distance(pos, job["pos"]) + 1 + unit_cost.get(i, 0)
+        if used + step > budget:
+            return used, value, i
+        used += step
+        value += job["value"]
+        pos = job["pos"]
+    return used, value, len(seq)
+
+
+def insertion_delta(start, seq, at, job, extra):
+    """Extra actions inserting `job` at position `at` costs this route."""
+    before = start if at == 0 else seq[at - 1]["pos"]
+    step_in = distance(before, job["pos"]) + 1 + extra
+    if at >= len(seq):
+        return step_in
+    after = seq[at]["pos"]
+    return step_in + distance(job["pos"], after) - distance(before, after)
+
+
+def plan_routes(units, jobs, hours_left, action_cost, params, previous, supply_extra):
+    """Ordered job sequences per unit, rebuilt from the previous turn's plan.
+
+    Replaces per-turn worker-to-job matching. The matching objective prices the
+    walk *to* a job and nothing about where the unit is left standing, which is
+    why solving it exactly measured $25,078 *worse* than solving it greedily --
+    a better answer to the wrong question. A route prices what a job costs the
+    rest of the day instead: inserting work onto a tile a route already visits
+    costs one action and no travel, which is the thing a same-tile bonus was
+    trying and failing to express.
+
+    Carried across turns and repaired rather than rebuilt, so a unit three turns
+    into a plan does not abandon it because the arithmetic shifted slightly.
+    """
+    budget = hours_left + 1
+    by_key = {}
+    for idx, job in enumerate(jobs):
+        by_key.setdefault(job_key(job), idx)
+
+    # ---- Repair: keep the parts of last turn's routes that still exist.
+    routes = []
+    claimed = set()
+    for ui in range(len(units)):
+        seq = []
+        for key in previous.get(ui, ()):
+            idx = by_key.get(key)
+            if idx is not None and idx not in claimed:
+                seq.append(idx)
+                claimed.add(idx)
+        routes.append(seq)
+
+    # ---- Candidates, richest first, capped so the scan stays cheap.
+    # A job flagged `urgent` is lost entirely if the day ends without it -- an
+    # unfed animal escapes, an unwatered plant dies. Value alone does not express
+    # that: a route can rank it fairly and still push it past the budget. So the
+    # deadline work is placed first and the rest competes for what is left. This
+    # is the time-window half of TOPTW; without it the first build of this
+    # planner starved five animals a game.
+    pool = [i for i in range(len(jobs)) if i not in claimed]
+    pool.sort(key=lambda i: (not jobs[i].get("urgent"), -jobs[i]["value"]))
+    del pool[params["route_candidates"]:]
+
+    max_len = params["route_max_len"]
+
+    def best_two(ji):
+        """Best and second-best (gain, route, position) for one job."""
+        job = jobs[ji]
+        extra = supply_extra(ji)
+        best = second = None
+        for ui, seq in enumerate(routes):
+            if len(seq) >= max_len:
+                continue
+            start = units[ui][0]
+            objs = [jobs[k] for k in seq]
+            used, _value, feasible = route_cost(start, objs, budget, {})
+            if feasible < len(seq):
+                continue
+            for at in range(len(seq) + 1):
+                delta = insertion_delta(start, objs, at, job, extra)
+                if used + delta > budget:
+                    continue
+                gain = job["value"] - delta * action_cost
+                if gain <= 0:
+                    continue
+                cand = (gain, ui, at)
+                if best is None or gain > best[0]:
+                    best, second = cand, best
+                elif second is None or gain > second[0]:
+                    second = cand
+        return best, second
+
+    scored = []
+    for ji in pool:
+        best, second = best_two(ji)
+        if best is None:
+            continue
+        regret = best[0] - (second[0] if second else 0.0)
+        scored.append([regret, best[0], ji, best, 0])
+    # Regret first: a job that fits well in exactly one route is the one that is
+    # lost by filling that slot with something flexible.
+    scored.sort(key=lambda e: (not jobs[e[2]].get("urgent"), -e[0], -e[1]))
+
+    # An insertion shifts every later position in that route, so a queued
+    # candidate whose chosen route has since changed must be re-costed before it
+    # is used. Versioning the routes keeps that to the ones actually affected
+    # instead of re-scanning everything after every insert.
+    version = [0] * len(routes)
+    queue = scored
+    while queue:
+        entry = queue.pop(0)
+        _regret, _gain, ji, best, seen = entry
+        gain, ui, at = best
+        if seen != version[ui]:
+            fresh, second = best_two(ji)
+            if fresh is None:
+                continue
+            entry[0] = fresh[0] - (second[0] if second else 0.0)
+            entry[1] = fresh[0]
+            entry[3] = fresh
+            entry[4] = version[fresh[1]]
+            # Re-queue in place rather than re-sorting the whole list.
+            key = (not jobs[ji].get("urgent"), -entry[0], -entry[1])
+            lo = 0
+            while lo < len(queue):
+                q = queue[lo]
+                if (not jobs[q[2]].get("urgent"), -q[0], -q[1]) >= key:
+                    break
+                lo += 1
+            queue.insert(lo, entry)
+            continue
+        seq = routes[ui]
+        if len(seq) >= max_len:
+            continue
+        seq.insert(at, ji)
+        version[ui] += 1
+
+    return routes
+
+
 def assign_units(units, jobs, depots, hours_left, seeds, params, shed, endgame,
-                 shed_total, action_cost, supplies=(), quadrants=1, day=None):
+                 shed_total, action_cost, supplies=(), quadrants=1, day=None,
+                 routes_in=None, routes_out=None):
     """Greedy matching on ``value - distance * action_cost``.
 
     Pricing a walk at its real opportunity cost keeps units working the tile in
@@ -1794,11 +1979,37 @@ def assign_units(units, jobs, depots, hours_left, seeds, params, shed, endgame,
             mode, pairs, jobs, len(units), params, seeds,
             {item: shed.get(item, 0) for item in pickup_needs}, carrying)
 
+    # With the planner on, the head of each unit's route *is* its assignment;
+    # the greedy pair loop below is skipped entirely. Budgets still apply.
+    planned = None
+    if params["route_planner"] and routes_in is not None:
+        def _supply_extra(_ji):
+            # `route_cost` does not model the pickup detour, so neither does the
+            # insertion delta -- the two must agree or the budget check drifts.
+            # The action loop below still routes a `need` job via shed or herd.
+            return 0
+
+        planned = plan_routes(units, jobs, hours_left, action_cost, params,
+                              routes_in, _supply_extra)
+        if routes_out is not None:
+            for ui, seq in enumerate(planned):
+                routes_out[ui] = [job_key(jobs[k]) for k in seq]
+
     taken_unit = {}
     taken_job = set()
     plant_budget = dict(seeds)
     stock_budget = {item: shed.get(item, 0) for item in pickup_needs}
-    for score, _negdist, ui, ji in pairs:
+    ordered = pairs
+    if planned is not None:
+        # One entry per unit: its route head, scored so the budget checks below
+        # read the same as they do for a matched pair.
+        ordered = []
+        for ui, seq in enumerate(planned):
+            if seq:
+                ordered.append((jobs[seq[0]]["value"], 0, ui, seq[0]))
+        ordered.sort(reverse=True)
+
+    for score, _negdist, ui, ji in ordered:
         if ui in taken_unit or ji in taken_job:
             continue
         if score <= 0 and not endgame:
@@ -2387,7 +2598,7 @@ def terminal_actions(units, depots, shed):
     return actions
 
 
-def _play(obs, params):
+def _play(obs, params, state=None):
     player = obs["player"]
     farm = obs["farms"][player]
     private = obs["private"]
@@ -2434,11 +2645,25 @@ def _play(obs, params):
         action_cost = marginal_action_cost(jobs, len(units), hours_left, params)
         # Wheat in a feeder's hands is stock in transit, not produce to bank.
         supplies = ("WHEAT",) if info["animals"] else ()
+        # Routes persist across turns, so they live in the agent closure. The
+        # arena reuses one agent callable across games, so the store is reset
+        # whenever the step counter goes backwards or the day rolls -- everyone
+        # respawns at the depot at dawn, which invalidates yesterday's plan.
+        routes_in, routes_out = {}, None
+        if state is not None and params["route_planner"]:
+            if state.get("day") != day or state.get("step", -1) >= step:
+                state["routes"] = {}
+            state["day"] = day
+            state["step"] = step
+            routes_in = state.setdefault("routes", {})
+            routes_out = {}
         unit_actions = assign_units(
             units, jobs, depots, hours_left, private["seeds"], params,
             shed, endgame, shed_total, action_cost, supplies,
-            len(farm["unlocked_quadrants"]), day,
+            len(farm["unlocked_quadrants"]), day, routes_in, routes_out,
         )
+        if routes_out is not None:
+            state["routes"] = routes_out
 
     # The unit phase runs before the market phase, so anything a hand is about
     # to PICKUP has already left the shed by the time our sell orders execute.
@@ -2480,9 +2705,11 @@ def make_agent(params=None):
     if params:
         merged.update(params)
 
+    state = {}
+
     def agent(obs):
         try:
-            return _play(obs, merged)
+            return _play(obs, merged, state)
         except Exception:
             hands = []
             try:

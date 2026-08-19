@@ -309,6 +309,26 @@ DEFAULTS = {
     # The bonus the table promises is never collected, and the watering it
     # crowded out was already earning.
     "fertilize_min_edge": 1e9,
+    # The sweep above is about *ongoing* crops, where the bonus is only banked on
+    # a day the plant is also watered -- so fertilising demands extra waterings
+    # and crowds out the ones already earning. A one-time crop has no such
+    # coupling: wheat's three window waterings each add 2 instead of 1 on the
+    # same turns, 4 units becoming 6, no extra watering asked for. This edge is
+    # applied to non-ongoing crops only, so the measured failure mode cannot
+    # recur. Measured: +$2,314 held out against v24 where the same agent without
+    # it makes +$1,806, at a 0.875 score against 0.833. The split is what makes
+    # it work -- the old sweep that concluded "less is always better" could only
+    # turn both on together.
+    "fertilize_once_edge": 0.5,
+    # Take the last window watering before harvesting a one-time crop. It does
+    # what it says -- mean peak wheat yield 2.6 -> 3.2 of 4, and 62 of 112 tiles
+    # reach 4 where none did before -- and it still **loses**: -$1,367 held out
+    # against the same agent with it off. One extra action per tile buys one unit
+    # of the cheapest product on the board, and the action was already earning
+    # more elsewhere. It is also a *substitute* for fertilising, not a complement:
+    # with fertiliser on, adding it costs another $1,248. Kept off, with the
+    # switch left in place so the result is not rediscovered.
+    "water_before_harvest": False,
     "max_sell_slots": 7,
     "shed_margin": 45,
     "carry_limit": 8,
@@ -1220,8 +1240,24 @@ def build_jobs(obs, farm, private, params, depots, day, hours_left, endgame, inf
         # The season ends within `liquidate_days`: take what is on the tile
         # rather than waiting for a yield the clock will not reach.
         final = (LAST_DAY - day) < params["liquidate_days"]
-        if ripe and (endgame or final or age >= harvest_age(crop)
-                     or held >= cd["max_yield"]):
+        # A non-ongoing crop's last watering lands on the same day it becomes
+        # harvestable: wheat's window is ages 2-4 and `harvest_age` is 4. The
+        # harvest branch used to `continue` past the watering block, so that
+        # third watering was never offered and wheat topped out at 3 units of a
+        # possible 4 -- measured peak distribution {1: 11, 2: 23, 3: 82} over 116
+        # tiles, never once 4. Water first, harvest next turn; the plant does not
+        # decay until age `max_yield_day + 1`, so the whole day is safe.
+        w_start, w_end = water_window(crop)
+        water_first = (
+            params["water_before_harvest"]
+            and not cd["ongoing"]
+            and not endgame and not final
+            and not tile.get("watered_today")
+            and w_start <= age <= w_end
+            and held < cd["max_yield"]
+        )
+        if ripe and not water_first and (endgame or final or age >= harvest_age(crop)
+                                         or held >= cd["max_yield"]):
             add(pos, ["HARVEST"], held * unit_price, "HARVEST")
             continue
         if endgame or tile.get("watered_today"):
@@ -1244,7 +1280,8 @@ def build_jobs(obs, farm, private, params, depots, day, hours_left, endgame, inf
             gained = fertilize_gain(crop, tile, day)
             if gained > 0:
                 worth = gained * unit_price - marginal_price("FERTILIZER")
-                edge = params["fertilize_min_edge"]
+                edge = (params["fertilize_min_edge"] if cd["ongoing"]
+                        else params["fertilize_once_edge"])
                 # Growing two more of something no shop asked for is two more
                 # units into a market already at the floor. Spend the turn only
                 # where the town is draining what it would grow.

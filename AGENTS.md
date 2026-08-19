@@ -295,6 +295,74 @@ worth 30 rating points. The ladder decides.
 Still short of the top agents: 33.6% working against THUNDER's 41.2%, and 1.66
 walk per job against 1.02. The remaining gap is now mostly crop-side routing.
 
+## Items 1 and 2 from the tracking report: one was already done, one works split
+
+Worked 2026-08-19 after the top-20 profile put "harvest more" and "fertilise" at
+the top of the list. Both answers were different from the prediction.
+
+### Harvest: the count gap is cadence, not lost value
+
+The report read HARVEST 271 against the consensus 399 as a third of our crop
+going unpicked. It is not. Measured directly:
+
+- **Animal production lost to the `max_held` cap: zero.** 334 productions over
+  three games, none capped, no animal-day spent at capacity. Fewer, larger
+  harvests are *cheaper* than theirs, not worse.
+- **Crop left in the field: $95**, and $849 in units' hands -- already closed by
+  the liquidation change earlier today.
+
+So >95% of producible units are collected and the remaining count difference is
+harvest cadence. There is no third of a farm going missing.
+
+**One real defect did turn up while checking, and it still does not pay.** Wheat
+peaked at 3 units of a possible 4, never once 4, over 116 tiles: the harvest
+branch `continue`d past the watering block, so the last window watering (wheat's
+window is ages 2-4 and `harvest_age` is 4) was never offered. Fixing it works --
+mean peak 2.6 -> 3.2, 62 of 112 tiles reaching 4 -- and **loses $1,367 held out**.
+One extra action per tile buys one unit of the cheapest product on the board, and
+that action was already earning more elsewhere. `water_before_harvest` stays off,
+switch retained.
+
+### Fertiliser: the old sweep could not test the thing that works
+
+`fertilize_min_edge` was set to 1e9 after a sweep that found "less is always
+better", with a good mechanism: an ongoing crop only banks the bonus on a day it
+is also watered, so fertilising demands *extra* waterings and crowds out the ones
+already earning -- 58 FERTILIZE cost 122 waterings and strawberry sold fell.
+
+That mechanism does not exist for a one-time crop. Wheat's three window waterings
+each add 2 instead of 1 **on the same turns**; nothing extra is asked for. The
+old sweep could only turn both on together, so it never tested this.
+
+Split into `fertilize_once_edge`, applied to non-ongoing crops only:
+
+| | search | holdout |
+| --- | --- | --- |
+| off (1e9) | 0.792, +$1,986 | 0.833, +$1,806 |
+| edge 0.25 | 0.833, +$2,697 | 0.875, +$2,365 |
+| **edge 0.5** | **0.833, +$2,661** | **0.875, +$2,407** |
+| edge 1.0 | 0.833, +$2,620 | 0.875, +$2,314 |
+| edge 2.0 | 0.833, +$2,535 | 0.875, +$2,427 |
+
+The optimum is flat from 0.25 to 2.0, which is the reassuring shape -- this is
+not a value fitted to the seeds. Taken at 0.5.
+
+Note the two are **substitutes, not complements**: with fertiliser on, adding
+`water_before_harvest` costs a further $1,248. Both buy the same missing wheat
+units, and fertiliser buys them without spending an action per tile.
+
+**Headroom remains.** We now issue 17 FERTILIZE a game against the consensus 70
+and tetsuya's 132, and it is already worth ~$140 an action. Lowering the edge
+further does not raise the count, so the limit is *timing* -- the bonus only pays
+if applied by age 2, and units rarely arrive that early -- not price. That is the
+next thing to try on this line.
+
+### Candidate standing, 50 seeds a side against the benchmark pair
+
+**0.840 search / 0.870 held out, +$4,249 / +$4,248** (v24 +$2,685, v23 +$5,811),
+over 200 games a seed set. Gate clean: 104 tests, ruff, validator zero issues and
+no stranded livestock, every game DONE, shed empty, p95 1.00ms.
+
 ## The top 20 is one agent, and the gap is execution not strategy
 
 Pulled 2026-08-19 with `lab/scout.py`, profiled with `lab/profile_top.py`. The

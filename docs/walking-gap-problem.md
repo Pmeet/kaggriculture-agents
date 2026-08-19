@@ -140,6 +140,24 @@ Please do not propose these; they are ruled out empirically.
    exactly (verified against brute force, never worse than greedy, +\$12,421 of
    assigned job value per game) and the agent got **\$25,078 worse**. The
    per-turn objective is what is wrong, not the solver.
+5. **A continuation term.** `score += w * (value of other work within radius r of
+   p_j, discounted by 1/(1+d))`, weight swept over an order of magnitude. Over
+   180 games on fresh seeds at the best weight: mean margin **+\$139** with the
+   sign flipping between seed sets, and **standard deviation of the margin nearly
+   doubles** ($3,597 → $6,167, $2,505 → $6,379, $3,530 → $4,998).
+
+### The constraint any answer must satisfy
+
+Two separate experiments — under-pricing the highest-value job type, and the
+continuation term above — left the **mean** margin flat or better while roughly
+**doubling its variance**. Our objective is not expected margin; it is
+`Pr[win] = Φ(μ/σ)` against one opponent per game. A change that raises μ by 10%
+and σ by 50% is a *loss*.
+
+So: **an answer must hold σ down while reducing travel.** Proposals that chase
+aggregate collected value have twice now produced a more erratic agent rather
+than a better one. If your algorithm trades reliability for expected score, say
+so explicitly, because that trade is the wrong direction here.
 
 Item 4 is the strongest hint available: **the myopic objective is the defect.**
 A per-turn optimum does not compose into a good day.

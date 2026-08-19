@@ -341,6 +341,16 @@ DEFAULTS = {
     # error.
     "fertilize_value_scale": 1.0,
     "water_value_scale": 1.0,
+    # Continuation value: the worth of other work within `continuation_radius`
+    # of a job's tile, discounted by distance from it, added to that job's score.
+    # The idea is sound and the measurement says it does nothing. Over 180 fresh
+    # games at the best weight found (0.015), mean margin is **+$139** with the
+    # sign flipping across seed sets -- and sigma nearly doubles every time
+    # ($3,597 -> $6,167, $2,505 -> $6,379, $3,530 -> $4,998). Same expected
+    # margin, twice the variance, so it is strictly worse under Pr[win] =
+    # Phi(mu/sigma). Kept at 0 with the switch in place.
+    "continuation_weight": 0.0,
+    "continuation_radius": 3,
     # Take the last window watering before harvesting a one-time crop. It does
     # what it says -- mean peak wheat yield 2.6 -> 3.2 of 4, and 62 of 112 tiles
     # reach 4 where none did before -- and it still **loses**: -$1,367 held out
@@ -1725,6 +1735,25 @@ def assign_units(units, jobs, depots, hours_left, seeds, params, shed, endgame,
                     best = (cost, src, "HERD")
         return best
 
+    # Worth of other work near each job tile, computed once per turn rather than
+    # per (unit, job) pair: it depends only on where the jobs are.
+    cont = {}
+    cw = params["continuation_weight"]
+    if cw > 0.0 and jobs:
+        radius = params["continuation_radius"]
+        by_pos = {}
+        for j in jobs:
+            key = tuple(j["pos"])
+            by_pos[key] = by_pos.get(key, 0.0) + j["value"]
+        places = list(by_pos.items())
+        for p, _own in places:
+            total = 0.0
+            for q, v in places:
+                d = distance(p, q)
+                if d <= radius:
+                    total += v / (1.0 + d)
+            cont[p] = total
+
     pairs = []
     for ui, (pos, inv) in enumerate(units):
         for ji, job in enumerate(jobs):
@@ -1741,6 +1770,9 @@ def assign_units(units, jobs, depots, hours_left, seeds, params, shed, endgame,
             score = job["value"] - dist * action_cost
             if dist == 0:
                 score += params["same_tile_bonus"] * action_cost
+            if cw > 0.0:
+                # Everything *else* worth doing near where this leaves the unit.
+                score += cw * max(0.0, cont.get(tuple(job["pos"]), 0.0) - job["value"])
             pairs.append((score, -dist, ui, ji))
     pairs.sort(reverse=True)
 

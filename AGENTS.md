@@ -379,6 +379,44 @@ stays so the result is not rediscovered.
 over 200 games a seed set. Gate clean: 104 tests, ruff, validator zero issues and
 no stranded livestock, every game DONE, shed empty, p95 1.00ms.
 
+## The continuation term: no effect on margin, double the variance
+
+The most promising suggestion from the outside model, and our own standing
+hypothesis besides: `value - dist * C` prices the walk *to* a job and nothing
+about where the worker is left standing, so add a term for the work available
+around the destination.
+
+Implemented as `continuation_weight` and `continuation_radius`: for each job
+tile, sum the value of other jobs within the radius discounted by `1/(1+d)`,
+computed once per turn rather than per pair, and add `weight x (that - own
+value)` to the pair score. Scale measured first, because it matters -- the
+continuation value has a median of **1,126** against a median job value of
+**84**, so a weight near 0.075 makes it worth a whole median job and 0.005 makes
+it worth half a tile of walking.
+
+Sweeping at 20 seeds gave one apparently good cell, 0.015 at +$1,896 held out --
+**and -$2,176 on its own search set**. Search and holdout disagreeing that
+sharply is a noise signature, so it was re-run on three seed sets it had never
+been measured on, 60 games each:
+
+| seeds | mu | win rate | sigma (off -> on) | Phi |
+| --- | --- | --- | --- | --- |
+| 3000-3029 | +$514 | 0.567 | 3,597 -> **6,167** | 0.533 |
+| 4000-4029 | +$806 | 0.550 | 2,505 -> **6,379** | 0.550 |
+| 5000-5029 | -$902 | 0.433 | 3,530 -> **4,998** | 0.428 |
+
+Mean over 180 games: **+$139**, with the sign flipping. Margin is unchanged
+within noise; **sigma nearly doubles in every set**. Under Pr[win] = Phi(mu/sigma)
+that is strictly worse, and it would have looked like a win to anyone reading
+only the first two rows.
+
+**A pattern is now visible across three separate experiments.** Under-pricing
+watering, and now adding continuation value, both leave the mean roughly alone or
+raise it while inflating sigma. Changes that push the agent to chase aggregate
+value make it more erratic rather than better. Whatever closes the walking gap
+will have to hold sigma down while doing it -- which is a much sharper
+requirement than "walk less", and worth putting to the next model.
+
 ## An outside model on the walking gap: right frame, wrong mechanism
 
 `docs/walking-gap-problem.md` was put to another model. Its formalisation is

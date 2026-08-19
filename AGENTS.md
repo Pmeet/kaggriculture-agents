@@ -379,6 +379,75 @@ stays so the result is not rediscovered.
 over 200 games a seed set. Gate clean: 104 tests, ruff, validator zero issues and
 no stranded livestock, every game DONE, shed empty, p95 1.00ms.
 
+## An outside model on the walking gap: right frame, wrong mechanism
+
+`docs/walking-gap-problem.md` was put to another model. Its formalisation is
+useful and its causal explanation is refuted by measurement -- both worth keeping.
+
+**Correct and worth adopting.** The problem is a dynamic **Team Orienteering
+Problem**: unlike a VRP it does not require visiting every node, it maximises
+collected score inside a time budget where servicing everything is impossible.
+Strongly NP-hard. That is the right literature to read, and we did not have a
+name for it before.
+
+**Refuted: "exact assignment loses to greedy because it thrashes."** The claim is
+that re-solving exactly each turn pivots workers off their trajectories and
+wastes travel, where greedy accidentally creates inertia. Measured over three
+seeds, forcing each mode:
+
+| mode | move % | work % | U-turns | as % of moves |
+| --- | --- | --- | --- | --- |
+| greedy | 61.6 | 28.3 | 102 | 2.1% |
+| **optimal** | 59.5 | 27.9 | **86** | **1.8%** |
+| nearest | 47.2 | 32.6 | 40 | 1.1% |
+
+**Optimal reverses less often than greedy, not more**, and reversals are 1-2% of
+all moves either way -- far too small to explain a $25,078 swing. This matches
+the older measurement in the optimal-assignment section (U-turns 83 against 75).
+The mechanism is real in principle and absent here.
+
+Their inertia observation is nonetheless true of our code: greedy sorts pairs by
+`value - dist * C`, so a worker closing on a target sees that target's score rise
+with it. That is a genuine stabiliser exact matching lacks. It is just not what
+is costing the money.
+
+**Their ceiling estimate is probably too low.** They reason that walking 5 tiles
+to clear a 4-job animal tile gives 4/(5+4) = 44%, so 45-50% is the cap. But
+animal tiles sit ~1 tile apart in a herd: 5 + 4 + 1 + 4 gives 8 work in 14
+actions, **57%**. If sustained clustering is reachable the ceiling is well above
+the 41-43% the best agents manage, which makes the gap more interesting rather
+than less.
+
+**Untested and worth trying**, in their order of promise: a continuation term
+`+ E[V(p_j)]` for future job density around the destination (this matches our own
+standing hypothesis -- the score prices the walk *to* a job and nothing about
+where the worker is left); per-worker territories; and their closing suggestion,
+pre-computed multi-stop tours over the predictable animal clusters at dawn.
+
+### A side finding, and a caution about our own method
+
+Testing their claim meant forcing assignment modes, which prompted a proper sweep
+of `assignment_plan` (one letter per quadrant owned). Against v25 over 24 seeds a
+side:
+
+| plan | search | holdout |
+| --- | --- | --- |
+| `grrn` (default) | 0.500, +$0 | 0.500, +$0 |
+| **`rrrr`** | 0.521, +$2,219 | **0.604, +$948** |
+| `nnnn` | 0.354, -$3,480 | 0.292, -$1,696 |
+| `grnn` | 0.271, -$3,213 | 0.375, -$2,906 |
+| `gggg` | 0.000, -$13,507 | 0.000, -$13,566 |
+
+`rrrr` is a small positive lead worth confirming at higher seeds. Uniform greedy
+is catastrophic, which is a reminder that the shipped plan is already doing real
+work.
+
+**The caution is about the three-seed run above.** It said `nnnn` was the best
+mode by $9k. At 24 seeds it is -$1,696. Three seeds decided nothing and briefly
+convinced me otherwise; the `MIN_SEEDS` floor added this morning exists for
+exactly this, and the churn table above is kept only because U-turn *ratios* are
+structural rather than noisy.
+
 ## Perturbing a job price tests it; reading it only reports a belief
 
 The value table below shows what the agent *believes* each job is worth. To test

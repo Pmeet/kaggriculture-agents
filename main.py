@@ -320,6 +320,16 @@ DEFAULTS = {
     # it work -- the old sweep that concluded "less is always better" could only
     # turn both on together.
     "fertilize_once_edge": 0.5,
+    # Fertilizer held back from the market for the fields. The diagnosis was
+    # right and the remedy is badly wrong. Stock *is* the binding constraint on
+    # FERTILIZE -- it sits at zero on 326 of 719 turns, so the job is offered on
+    # only 88 turns and taken 17 times, against a consensus 70 and tetsuya's 132.
+    # But reserving it is ruinous: 8 costs **-$3,951** held out and 16 costs
+    # **-$29,050**, against +$2,407 at zero. Fertilizer is a real revenue line and
+    # the shed is capacity 100, so holding it both forgoes the sale and crowds out
+    # produce that then overflows and is discarded. Whatever lets the top agents
+    # fertilise 70-132 times, it is not hoarding. Kept at 0.
+    "fertilizer_reserve": 0,
     # Take the last window watering before harvesting a one-time crop. It does
     # what it says -- mean peak wheat yield 2.6 -> 3.2 of 4, and 62 of 112 tiles
     # reach 4 where none did before -- and it still **loses**: -$1,367 held out
@@ -2232,11 +2242,17 @@ def plan_sales(market_inventory, shed, params, step, n_animals, slots, carried=N
         0, n_animals * (1 + params["feed_buffer_days"]) - (carried or {}).get("WHEAT", 0)
     )
 
+    # Same idea as the wheat reserve: fertilizer in the shed is an input, not
+    # only stock. Released entirely on the last day, when it is stock again.
+    fertilizer_reserve = 0 if days_left <= 1.0 else params["fertilizer_reserve"]
+
     stock = []
     for item in PRODUCTS:
         have = shed.get(item, 0)
         if item == "WHEAT":
             have -= wheat_reserve
+        elif item == "FERTILIZER":
+            have -= fertilizer_reserve
         if have > 0:
             inv = market_inventory.get(item, MARKET_I0)
             stock.append((price_at(item, inv) * have, item, have, inv))

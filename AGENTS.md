@@ -351,11 +351,27 @@ Note the two are **substitutes, not complements**: with fertiliser on, adding
 `water_before_harvest` costs a further $1,248. Both buy the same missing wheat
 units, and fertiliser buys them without spending an action per tile.
 
-**Headroom remains.** We now issue 17 FERTILIZE a game against the consensus 70
-and tetsuya's 132, and it is already worth ~$140 an action. Lowering the edge
-further does not raise the count, so the limit is *timing* -- the bonus only pays
-if applied by age 2, and units rarely arrive that early -- not price. That is the
-next thing to try on this line.
+**The headroom is real, and the obvious way to reach it is ruinous.** We issue 17
+FERTILIZE a game against the consensus 70 and tetsuya's 132, already worth ~$140
+an action. Instrumenting the job showed the constraint is not price and not the
+edge: the job is *offered* 1,471 times but on only **88 turns of 719**, because
+**fertilizer stock sits at zero on 326 turns**. We collect ~257 a game and sell
+essentially all of it.
+
+So hold some back -- and it collapses. Against v24, held out:
+
+| `fertilizer_reserve` | score | margin |
+| --- | --- | --- |
+| 0 | 0.875 | +$2,407 |
+| 8 | 0.208 | **-$3,951** |
+| 16 | 0.000 | **-$29,050** |
+
+Fertilizer is a real revenue line, and the shed is capacity 100: holding it both
+forgoes the sale and crowds out produce, which then overflows and is discarded.
+Whatever lets the top agents fertilise 70-132 times a game, **it is not
+hoarding** -- more likely they collect on a different schedule, or apply it
+straight from the animal tile without a shed round trip. Left at 0; the parameter
+stays so the result is not rediscovered.
 
 ### Candidate standing, 50 seeds a side against the benchmark pair
 

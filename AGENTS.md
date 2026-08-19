@@ -295,6 +295,51 @@ worth 30 rating points. The ladder decides.
 Still short of the top agents: 33.6% working against THUNDER's 41.2%, and 1.66
 walk per job against 1.02. The remaining gap is now mostly crop-side routing.
 
+## How cattle and crops actually compete -- and why relaxing it does nothing
+
+Asked directly, and the answer is that they do not compete on value anywhere.
+Three mechanisms split the farm, none of which weighs an animal against a crop:
+
+1. **Position.** Empty tiles are sorted by distance to the shed; the nearest
+   `n_struct` become pens and everything further out becomes crops. Livestock
+   gets the inner ring by geometry, not by being worth more.
+2. **Asymmetric pricing.** `crop_value` is a real model -- profit per tile-day
+   *and* per action, charged against our own in-flight supply, discounted for
+   cycle length and cash starvation. A pen is worth
+   `max(60, animal_profit * build_fraction)`, and `build_fraction` is **0.1**.
+   The pen competes for a build action at a tenth of the animal's value.
+3. **The herd target never binds.** `target_cows` 14 + `target_sheep` 12 = 26,
+   and we place 11. Counting what actually stopped each purchase over a game:
+
+| blocker | share of opportunities |
+| --- | --- |
+| no spare pen | 36.3% |
+| past `animal_last_day` (20) | 33.3% |
+| cannot afford after reserves | 27.0% |
+| bought | 3.5% |
+| **target reached** | **never** |
+
+**But relaxing the binding constraint does not pay**, which is the useful half.
+Against v24 over 20 seeds a side:
+
+| variant | search | holdout |
+| --- | --- | --- |
+| `build_fraction` 0.3 | +$745 (0.625) | +$612 (0.525) |
+| `build_fraction` 0.6 | -$400 | -$442 |
+| `animal_last_day` 24 | -$21 | -$241 |
+| both | +$726 | +$362 (0.475) |
+
+Nothing clears noise: the best holdout score is 0.525 on a win rate whose
+interval is +/-0.19, and +$612 is 0.7% of a bank. So "no spare pen" is a blocker
+that costs nothing to be blocked by, which agrees with the measured note already
+in `livestock_plan` -- an empty pen is an option, and forcing more of them cost
+$34,382 at `build_ahead_cover` 1.5.
+
+**The reading.** The herd is limited by cash and by the day-20 cutoff far more
+than by pens, and the 10% pen price is closer to right than it looks. Do not
+re-tune these three constants; if livestock is to grow further it needs the
+*cash* path opened earlier, not the pen price raised.
+
 ## Crop-side routing: two negative results and one small win
 
 Continuing after v23. The remaining action-budget gap is crop-side -- HARVEST at

@@ -1,0 +1,294 @@
+<title>The Compute Question</title>
+<style>
+  :root {
+    --paper:#ecede4; --paper-2:#f7f7f1; --ink:#16190f; --ink-2:#43483a; --ink-3:#6b6f5f;
+    --rule:#c9ccbc; --rule-soft:#dcdece; --accent:#7d6110; --accent-soft:#f0e3b8;
+    --no:#9d3b26; --yes:#47703a; --maybe:#7d6110;
+    --measure:34rem; --wide:56rem;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper:#14170f; --paper-2:#1c2016; --ink:#eff0e4; --ink-2:#bdc0ae; --ink-3:#8e9280;
+      --rule:#363c2c; --rule-soft:#272c1f; --accent:#d3b04a; --accent-soft:#3a3116;
+      --no:#d97a5f; --yes:#8bb07a; --maybe:#d3b04a;
+    }
+  }
+  :root[data-theme="dark"] {
+    --paper:#14170f; --paper-2:#1c2016; --ink:#eff0e4; --ink-2:#bdc0ae; --ink-3:#8e9280;
+    --rule:#363c2c; --rule-soft:#272c1f; --accent:#d3b04a; --accent-soft:#3a3116;
+    --no:#d97a5f; --yes:#8bb07a; --maybe:#d3b04a;
+  }
+  *{box-sizing:border-box}
+  body{background:var(--paper);color:var(--ink);
+    font:400 17px/1.65 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    margin:0;padding:0 1.25rem 6rem;-webkit-font-smoothing:antialiased}
+  .col{max-width:var(--measure);margin-inline:auto}
+  .wide{max-width:var(--wide);margin-inline:auto}
+  h1,h2,h3{font-family:Georgia,"Iowan Old Style","Times New Roman",serif;font-weight:600;
+    text-wrap:balance;letter-spacing:-.01em;margin:0}
+  h1{font-size:clamp(2.1rem,5.5vw,3rem);line-height:1.08}
+  h2{font-size:1.55rem;line-height:1.2}
+  h3{font-size:1.06rem;line-height:1.3}
+  p{margin:0}
+  .eyebrow{font:600 .72rem/1 ui-monospace,"SF Mono",Menlo,monospace;letter-spacing:.15em;
+    text-transform:uppercase;color:var(--accent)}
+  header.hero{border-bottom:1px solid var(--rule);padding:4.5rem 0 2.5rem;margin-bottom:3rem}
+  .hero-stack{display:flex;flex-direction:column;gap:1.3rem}
+  .lede{font-size:1.15rem;color:var(--ink-2)}
+  section{margin-bottom:3.4rem}
+  .sec-head{display:flex;flex-direction:column;gap:.5rem;margin-bottom:1.3rem}
+  .stack{display:flex;flex-direction:column;gap:1rem}
+  .verdicts{display:grid;grid-template-columns:repeat(auto-fit,minmax(13rem,1fr));gap:1px;
+    background:var(--rule);border:1px solid var(--rule);margin-top:.4rem}
+  .verdicts div{background:var(--paper-2);padding:1rem 1.1rem}
+  .verdicts .q{font:600 .68rem/1.3 ui-monospace,Menlo,monospace;letter-spacing:.1em;
+    text-transform:uppercase;color:var(--ink-3);display:block;margin-bottom:.5rem}
+  .verdicts .a{font:600 1.5rem/1 Georgia,serif;display:block}
+  .verdicts .n{font-size:.83rem;color:var(--ink-3);display:block;margin-top:.4rem}
+  .no{color:var(--no)} .yes{color:var(--yes)} .maybe{color:var(--maybe)}
+  .scroll{overflow-x:auto;margin-block:.4rem}
+  table{border-collapse:collapse;width:100%;font-size:.87rem}
+  caption{text-align:left;color:var(--ink-3);font-size:.82rem;padding-bottom:.6rem}
+  th,td{padding:.5rem .7rem;text-align:left;vertical-align:top}
+  td.num,th.num{text-align:right;white-space:nowrap;
+    font-family:ui-monospace,Menlo,monospace;font-variant-numeric:tabular-nums}
+  thead th{font:600 .7rem/1.3 ui-monospace,Menlo,monospace;letter-spacing:.06em;
+    text-transform:uppercase;color:var(--ink-3);border-bottom:1px solid var(--rule)}
+  tbody td{border-bottom:1px solid var(--rule-soft)}
+  tbody tr:last-child td{border-bottom:1px solid var(--rule)}
+  .claim{border-top:2px solid var(--ink);padding-top:.9rem;display:flex;
+    flex-direction:column;gap:.75rem}
+  .claim+.claim{margin-top:2rem}
+  .tag{font:600 .66rem/1 ui-monospace,Menlo,monospace;letter-spacing:.09em;
+    text-transform:uppercase;padding:.28rem .45rem;border:1px solid currentColor;
+    display:inline-block;margin-left:.5rem;vertical-align:.15em}
+  .worked{background:var(--paper-2);border-left:3px solid var(--accent);
+    padding:.85rem 1rem;font-size:.95rem;color:var(--ink-2)}
+  .worked b{color:var(--ink);font-weight:600}
+  ol.ranked{margin:0;padding:0;list-style:none;counter-reset:r;
+    display:flex;flex-direction:column;gap:1.4rem}
+  ol.ranked>li{counter-increment:r;display:grid;grid-template-columns:2.2rem 1fr;
+    gap:.9rem;align-items:start}
+  ol.ranked>li::before{content:counter(r);font:600 1.45rem/1 Georgia,serif;
+    color:var(--accent);font-variant-numeric:tabular-nums}
+  ul.plain{margin:0;padding-left:1.1rem;display:flex;flex-direction:column;gap:.5rem}
+  ul.plain li::marker{color:var(--ink-3)}
+  hr.div{border:0;border-top:1px solid var(--rule);margin:0 0 3rem}
+  code{font-family:ui-monospace,Menlo,monospace;font-size:.9em}
+  .foot{color:var(--ink-3);font-size:.86rem}
+  :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+</style>
+
+<header class="hero">
+  <div class="col hero-stack">
+    <span class="eyebrow">Kaggriculture · decision memo · 19 Aug 2026</span>
+    <h1>Would a compute farm get us to the top?</h1>
+    <p class="lede">
+      Short answer: the box is cheap and easy, the serverless platforms are the wrong
+      shape, and neither matters much — because compute is not what is currently
+      limiting us. Self-play against our own agents has a ceiling we have already hit,
+      and we can measure exactly where it sits.
+    </p>
+    <div class="verdicts">
+      <div><span class="q">Cloudflare / Vercel</span><span class="a no">No</span>
+        <span class="n">Wrong runtime shape, and against free-tier terms</span></div>
+      <div><span class="q">Docker on a cheap VM</span><span class="a yes">Yes</span>
+        <span class="n">~$0–5/mo, ~70k games a day</span></div>
+      <div><span class="q">Would it get us to the top?</span><span class="a no">Not alone</span>
+        <span class="n">Opponent diversity is the binding constraint</span></div>
+    </div>
+  </div>
+</header>
+
+<main>
+
+<section class="wide stack">
+  <div class="sec-head col">
+    <span class="eyebrow">Part 1</span>
+    <h2>Which platforms actually work</h2>
+  </div>
+  <div class="col stack">
+    <p>
+      This one is straightforward, and the answer splits cleanly. Our workload is
+      <strong>CPU-bound batch</strong>: a long-running process pegging every core for
+      hours, no network, no requests. Serverless platforms are built for the opposite —
+      short, I/O-bound, request-triggered work.
+    </p>
+  </div>
+  <div class="scroll">
+    <table>
+      <caption>Fit for a long-running simulation batch.</caption>
+      <thead><tr><th>Option</th><th>Verdict</th><th>Why</th></tr></thead>
+      <tbody>
+        <tr><td>Cloudflare Workers</td><td class="no">No</td>
+          <td>Per-request CPU caps and no persistent process. It's an edge runtime for
+            request handling; Python support runs through Pyodide and is far slower than
+            native. Sustained batch compute also runs against the free-tier terms.</td></tr>
+        <tr><td>Vercel Functions</td><td class="no">No</td>
+          <td>Same shape. Hard per-invocation duration limits, no multi-core batch, and
+            the free tier explicitly isn't a compute farm. You'd spend the effort
+            fighting the platform.</td></tr>
+        <tr><td>Docker on a small VM</td><td class="yes">Yes</td>
+          <td>Exactly right. A plain container, a cron entry, a volume for results.
+            Oracle Cloud's always-free ARM instance is the generous option; a small
+            Hetzner box is a few euros a month and simpler.</td></tr>
+        <tr><td>GitHub Actions</td><td class="maybe">Partly</td>
+          <td>Free minutes on public repos, 2-core runners, 6-hour job cap. Fine for a
+            nightly regression run, poor for continuous search — and this repo is
+            private, where minutes are metered.</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="col stack">
+    <p>
+      Throughput, measured rather than guessed: this machine does <strong>3.2 games per
+      second on 16 workers</strong>. A 4-core free VM would manage roughly a quarter of
+      that — call it <strong>70,000 games a day</strong>, every day, for about the price
+      of a coffee. That part of your idea is entirely sound.
+    </p>
+  </div>
+</section>
+
+<hr class="div" />
+
+<section class="col stack">
+  <div class="sec-head">
+    <span class="eyebrow">Part 2</span>
+    <h2>The three claims underneath the question</h2>
+  </div>
+
+  <div class="claim">
+    <h3>More games make the tuning better<span class="tag maybe">true, low ceiling</span></h3>
+    <p>
+      Real, but it is the avenue that has paid least. <code>lab/evolve.py</code> already
+      runs a joint evolutionary search across all <strong>86 tunable parameters</strong>,
+      with held-out validation built in. More compute would let it search longer.
+    </p>
+    <div class="worked">
+      Weigh that against what actually moved the needle today. Four parameter sweeps —
+      walking cost, same-tile chaining, pen price, animal cutoff — returned
+      <b>noise or negative</b>. The two real wins were <b>bugs</b>: livestock bought and
+      never delivered (+$28.7k) and harvest withheld until max yield (+$3.7k). Neither
+      was findable by search, because every agent we own had them.
+    </div>
+  </div>
+
+  <div class="claim">
+    <h3>Playing thousands of agents we built approaches perfection<span class="tag no">false, and measured</span></h3>
+    <p>
+      This is the load-bearing claim, and it's where the plan breaks. Self-play explores
+      only the strategy space your <em>parameterisation</em> spans. Our agent is 2,373
+      lines of hand-written heuristics with 86 knobs. Search can turn the knobs; it
+      cannot invent a strategy the code has no way to express.
+    </p>
+    <div class="worked">
+      We have already run this experiment. The local gauntlet reads <b>MEAN 1.000 /
+      WORST 1.000</b> — we beat every opponent we have ever built, decisively — while
+      the same agent was scoring about <b>0.46 on the ladder</b>. Generating a thousand
+      more of ourselves moves the first number not at all and the second not at all.
+    </div>
+    <p>
+      The AlphaZero intuition is the right reference, but it breaks on one detail:
+      AlphaZero's strategy space <em>is</em> the network, so self-play can discover
+      genuinely new play. Ours is a fixed program. Self-play optimises within it and
+      converges to the best version of the farm we already know how to describe.
+    </p>
+  </div>
+
+  <div class="claim">
+    <h3>Improvement compounds even against the wrong opponent<span class="tag maybe">half true</span></h3>
+    <p>
+      This is the strongest part of your argument and it does hold — for one class of
+      improvement. Split them:
+    </p>
+    <ul class="plain">
+      <li><strong>Opponent-independent</strong> — bug fixes, wasted actions, unsold
+        stock, an animal that never reaches its pen. These transfer to any opponent,
+        and self-play <em>can</em> surface them if the measurement is right.</li>
+      <li><strong>Opponent-dependent</strong> — market timing, what to grow, when to
+        undercut. These are fitted to whoever you played. Tuned against ourselves, they
+        encode our own blind spots and can be actively wrong on the ladder.</li>
+    </ul>
+    <p>
+      Most of the remaining gap is the second kind. The top agents beat us on the crop
+      economy — a different farm, not a better-tuned version of ours.
+    </p>
+  </div>
+</section>
+
+<hr class="div" />
+
+<section class="col stack">
+  <div class="sec-head">
+    <span class="eyebrow">Part 3</span>
+    <h2>What I would build, in this order</h2>
+  </div>
+  <ol class="ranked">
+    <li><div>
+      <h3>Real opponents in the pool<span class="tag yes">unblocks everything</span></h3>
+      <p>
+        Reconstruct two or three top ladder agents from replays as playable opponents.
+        This is already an open lead in the handoff and it is the single highest-value
+        item, because <em>every</em> compute-hungry idea below produces a misleading
+        answer until it exists. Cheap in compute, expensive in thought — which is
+        exactly why it hasn't happened yet.
+      </p>
+    </div></li>
+    <li><div>
+      <h3>A nightly ladder postmortem<span class="tag yes">compute helps</span></h3>
+      <p>
+        Pull our real ladder games each night, run <code>lab/postmortem.py</code> over
+        them, and write a report into the repo: which games we lost, what they had in
+        common, whether the engine version changed. Modest compute, and it uses the one
+        opponent set that is unarguably real. It would also have caught both silent
+        engine changes on the day they landed.
+      </p>
+    </div></li>
+    <li><div>
+      <h3>Large-sample failure characterisation<span class="tag yes">compute helps</span></h3>
+      <p>
+        Thousands of self-play games, not to count wins but to characterise the losing
+        tail. Our objective is <code>Pr[win] = Φ(μ/σ)</code>, and shrinking σ needs
+        hundreds of losses to study, not five. This is your original instinct and it is
+        correct — it's the one use where volume genuinely buys understanding.
+      </p>
+    </div></li>
+    <li><div>
+      <h3>Longer parameter search<span class="tag maybe">lowest ceiling</span></h3>
+      <p>
+        Let <code>evolve.py</code> run overnight against the improved pool. Worth doing
+        once items 1–3 exist. Worth little before them, because it would be optimising
+        against a saturated benchmark with more decimal places.
+      </p>
+    </div></li>
+  </ol>
+</section>
+
+<section class="col stack">
+  <div class="sec-head">
+    <span class="eyebrow">The honest risk</span>
+    <h2>Six weeks, and infrastructure is not the deliverable</h2>
+  </div>
+  <p>
+    The deadline is 30 September. Building and babysitting a cloud pipeline is a
+    days-long project that produces no agent improvement by itself. Everything that has
+    actually moved our rating this season came from reading a replay or an engine source
+    file and noticing something wrong — hypothesis generation, not evaluation throughput.
+  </p>
+  <p>
+    So the recommendation is <strong>a small version of this, not the full farm</strong>:
+    one cheap always-on box running the nightly ladder postmortem and a weekly evolve
+    pass, writing reports into the repo for review. That captures most of the value for
+    a fraction of the effort, and it keeps a human — or an agent reading the report — in
+    the loop, because every trap that has cost us time this season was conceptual rather
+    than statistical. A faster wrong measurement is still wrong.
+  </p>
+  <p class="foot">
+    Figures measured on this machine, 19 Aug 2026: 3.2 games/sec at 16 workers;
+    86 parameters in <code>DEFAULTS</code>; gauntlet MEAN 1.000 against a ladder win
+    rate near 0.46; parameter sweeps and their outcomes are recorded in
+    <code>AGENTS.md</code>.
+  </p>
+</section>
+
+</main>

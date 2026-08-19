@@ -250,13 +250,17 @@
       · v22 vs v21 local, seed 1 · engines 1.32.6 and 1.32.7
     </p>
     <div class="worked" style="margin-top:0.4rem">
-      <b>Updated 19 Aug, twice, after publication.</b> Kaggle shipped a balance
-      change on 15 August that we had missed — engine <b>1.32.7</b> — which
-      reprices exactly the thing this report is about; see
-      <a href="#reprice">the postscript</a>. And the top-ranked action below has
-      since been carried out: the diagnosis held, <b>the prescription did not</b>,
-      and the real cause was livestock that was bought and never delivered. Worth
-      <b>+$23,700</b> in margin and a 0.641 → 1.000 win rate locally.
+      <b>Updated 19 Aug, three times, after publication.</b> Kaggle shipped a
+      balance change on 15 August that we had missed — engine <b>1.32.7</b> —
+      which reprices exactly the thing this report is about; see
+      <a href="#reprice">the postscript</a>. The top-ranked action was then carried
+      out: the diagnosis held, <b>the prescription did not</b>, and the real cause
+      was livestock bought and never delivered — worth <b>+$23,700</b> and a
+      0.641 → 1.000 local win rate.
+      <br><br>
+      And the whole premise below has now been re-tested against the top 20 of the
+      ladder. <b>The crop economy is no longer our gap</b> — we plant their farm.
+      What remains is execution, and the action list is re-ranked accordingly.
       <a href="#next">Details in the ranked list.</a>
     </div>
     <div class="board">
@@ -597,22 +601,46 @@
     </li>
     <li>
       <div>
-        <h3>Turn fertiliser back on<span class="tag">cheapest</span></h3>
+        <h3>Harvest what we already grow<span class="tag">now the largest</span></h3>
+        <div class="worked">
+          <b>Re-ranked 19 Aug</b> after profiling the top 20. We plant essentially
+          their farm — wheat 121 against 125, strawberry 46 against 42 — and pick
+          <b>271 against their 399</b>. A third of everything we grow is never
+          harvested. <code>DIG 57 against 31</code> is the same fault seen from the
+          other end: tiles die unharvested and then cost actions to clear.
+        </div>
         <p>
-          It is currently disabled outright. Applied to watered wheat it converts a
-          $46 sale into two extra units worth ~$90, and we already collect the input for
-          free. Smallest change in this list by a wide margin.
+          The last-day half of this is done (v25, unshipped): harvest anything ripe
+          inside <code>liquidate_days</code> instead of waiting for max yield, plus a
+          last-train-home rule so carried produce is banked. Worth +$3,745 held out.
+          The other 28 days are untouched.
         </p>
       </div>
     </li>
     <li>
       <div>
-        <h3>Harvest before expiry, and rotate the dead tile<span class="tag">measured</span></h3>
+        <h3>Turn fertiliser back on<span class="tag">cheapest, and confirmed</span></h3>
         <p>
-          We end games with ~40 ripe wheat units in the ground and a fifth of the farm
-          idle. Strawberry dies on a known day — <code>planted_day + 17</code> — so the
-          replacement can be scheduled rather than noticed, exactly as the top agents do
-          when they swing strawberry land into wheat after day 22.
+          Still disabled outright — <b>0 actions against the consensus notebook's 70</b>.
+          The top-20 profile strengthened this considerably: <b>tetsuya, the rank-1
+          agent, runs 132</b>, nearly double the field. It is the clearest single thing
+          the best agent on the ladder does that the shared notebook does not.
+          Applied to watered wheat it converts a $46 sale into two extra units worth
+          ~$90, and we already collect the input free.
+        </p>
+      </div>
+    </li>
+    <li>
+      <div>
+        <h3>Close the walking gap — but not by pricing it<span class="tag">open, method unknown</span></h3>
+        <p>
+          1.87 tiles a job against the notebook's 1.32, and <b>1.48 against 0.77 on
+          animal tiles</b>. ReCurSiON reaches 1.02 and 0.35. Two approaches are already
+          ruled out by measurement: raising <code>action_cost</code> is
+          <b>strictly worse at every setting</b>, and bonusing same-tile chaining moves
+          the metric while losing money, because travel is conserved and chaining just
+          spends the free slot on a cheaper job. Whatever works here is structural, and
+          I do not yet know what it is.
         </p>
       </div>
     </li>
@@ -622,20 +650,34 @@
         <p>
           Any planting decision that uses a product's current price will over-plant thin
           markets. It should use the price expected after our own projected supply lands —
-          which is a change to how a tile is valued, not a new parameter to tune.
-          The 15 August reprice moved this from a refinement to a prerequisite: it is
-          what stands between us and the carrot/tomato premium below.
+          a change to how a tile is valued, not a parameter to tune. Still the
+          prerequisite for the item below.
         </p>
       </div>
     </li>
     <li>
       <div>
-        <h3>Claim the carrot and tomato premium<span class="tag">largest, and blocked</span></h3>
+        <h3>Claim the carrot and tomato premium<span class="tag">downgraded</span></h3>
+        <div class="worked">
+          <b>Demoted 19 Aug.</b> A competitor reproduced the reprice over 120 replayed
+          episodes: median scarcity sits just <em>below</em> each new knee, so the median
+          game pays <b>1.00×</b> the old revenue, ~2× only at p90, and <b>egg never
+          reaches the money at any percentile</b>. Switching build with agent and seed
+          fixed changed <b>0 of 224 winners</b>. It is a tail opportunity in a minority
+          of games, not a standing edge — and the one attempt cost $34,044.
+        </div>
+      </div>
+    </li>
+    <li>
+      <div>
+        <h3>Build three opponents, not twenty<span class="tag">new, unblocks measurement</span></h3>
         <p>
-          At $91 and $241 a unit against wheat's $47, on land nobody else is using.
-          Blocked on the item above and on the labour from item 1 — the one attempt
-          made so far cost $34,044, so this needs the planner fixed first rather than
-          a constant re-tuned.
+          <b>15 of the 22 top teams are behaviourally identical</b> — within 2% on every
+          action count. The top of the ladder is one shared notebook plus three genuine
+          variants: tetsuya (fertiliser-heavy), ReCurSiON (14 hands, high water), and
+          Eddy Despradel (four quadrants). Reproducing the consensus agent matters most,
+          because it is what the ladder actually pairs us against — and until it exists,
+          every local number is measured against our own lineage.
         </p>
       </div>
     </li>

@@ -330,6 +330,10 @@ DEFAULTS = {
     # produce that then overflows and is discarded. Whatever lets the top agents
     # fertilise 70-132 times, it is not hoarding. Kept at 0.
     "fertilizer_reserve": 0,
+    # Let a FERTILIZE source its input from an animal instead of the shed. Every
+    # animal drops one fertilizer a day and COLLECT_FERTILIZER is already a job
+    # on that tile, so the shed round trip is often avoidable entirely.
+    "fertilizer_from_herd": True,
     # Take the last window watering before harvesting a one-time crop. It does
     # what it says -- mean peak wheat yield 2.6 -> 3.2 of 4, and 62 of 112 tiles
     # reach 4 where none did before -- and it still **loses**: -$1,367 held out
@@ -1694,15 +1698,34 @@ def assign_units(units, jobs, depots, hours_left, seeds, params, shed, endgame,
         if item:
             pickup_needs[item] = pickup_needs.get(item, 0) + 1
 
+    # Fertilizer has a second source the shed route does not know about: every
+    # animal drops one a day, and COLLECT_FERTILIZER is already a job on that
+    # tile. Routing a FERTILIZE through the shed charges a round trip to the
+    # corner for an input that is often standing two tiles away in the herd.
+    fert_sources = [tuple(j["pos"]) for j in jobs if j["kind"] == "COLLECT_FERTILIZER"]
+
+    def supply_route(pos, item, target):
+        """Cheapest (distance, source) to pick `item` up and reach `target`."""
+        best = None
+        if shed.get(item, 0) > 0:
+            depot = nearest_shed(pos, depots)
+            best = (distance(pos, depot) + 1 + distance(depot, target), depot, "SHED")
+        if item == "FERTILIZER" and params["fertilizer_from_herd"]:
+            for src in fert_sources:
+                cost = distance(pos, src) + 1 + distance(src, target)
+                if best is None or cost < best[0]:
+                    best = (cost, src, "HERD")
+        return best
+
     pairs = []
     for ui, (pos, inv) in enumerate(units):
         for ji, job in enumerate(jobs):
             item = job.get("need")
             if item and inv.get(item, 0) <= 0:
-                if shed.get(item, 0) <= 0:
+                route = supply_route(pos, item, job["pos"])
+                if route is None:
                     continue
-                depot = nearest_shed(pos, depots)
-                dist = distance(pos, depot) + 1 + distance(depot, job["pos"])
+                dist = route[0]
             else:
                 dist = distance(pos, job["pos"])
             if dist > hours_left:
@@ -1873,6 +1896,14 @@ def assign_units(units, jobs, depots, hours_left, seeds, params, shed, endgame,
         job = jobs[ji]
         item = job.get("need")
         if item and inv.get(item, 0) <= 0:
+            route = supply_route(pos, item, job["pos"])
+            if route is not None and route[2] == "HERD":
+                if tuple(pos) == route[1]:
+                    actions.append(["COLLECT_FERTILIZER"])
+                else:
+                    move = step_toward(pos, route[1])
+                    actions.append(move if move else ["PASS"])
+                continue
             depot = nearest_shed(pos, depots)
             if tuple(pos) == tuple(depot):
                 batch = min(params["pickup_batch"], max(1, pickup_needs.get(item, 1)),

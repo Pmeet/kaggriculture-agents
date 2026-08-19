@@ -379,6 +379,70 @@ stays so the result is not rediscovered.
 over 200 games a seed set. Gate clean: 104 tests, ruff, validator zero issues and
 no stranded livestock, every game DONE, shed empty, p95 1.00ms.
 
+## Why FERTILIZE fires 17 times, and why that is close to correct
+
+Chased on Meet's suggestion that free daily fertilizer plus idle units should
+mean far more of it. Four engine facts first, because three of them settle parts
+of the question outright:
+
+- **There is no per-unit inventory cap.** `_inv_add` just increments. A unit can
+  carry any amount, and each unit has its own dict, so items do stack per hand.
+- **Nothing survives the night in hand.** `_drop_inventories_to_shed` empties
+  every inventory into the shed at day end and **discards the overflow**, then
+  `inventories` resets. Stockpiling in hand across days is impossible.
+- **Hands do not persist either** -- `farm["hands"] = []` nightly -- so a hand
+  hired tomorrow is a new unit with nothing in it.
+- **Collection is not the leak.** We collect 256-280 a game against 289-302 ever
+  available.
+
+And the idle window is much smaller than it looks. Idle unit-turns where
+fertilizer is waiting *and* a fertilisable crop exists: **43-47 a game**, not
+hundreds, because `fertilize_gain > 0` needs a one-time crop inside a narrow age
+window.
+
+**The real answer is in the job values.** Median value of each job as offered,
+one game:
+
+| job | offered | median $ | p90 $ |
+| --- | --- | --- | --- |
+| WATER | 7,407 | **275** | 803 |
+| FEED | 3,936 | 158 | 515 |
+| HARVEST | 2,786 | 99 | 1,100 |
+| **FERTILIZE** | 1,437 | **84** | 95 |
+| CARE | 3,825 | 74 | 173 |
+| PLANT | 2,305 | 52 | 661 |
+
+FERTILIZE is offered 1,437 times and is worth a median $84 against watering's
+$275, with a p90 of only $95 -- it is never a high-value job. **The greedy is
+ranking it correctly.** We fertilise 17 times because that is how often it is the
+best thing a unit can do; forcing more displaces watering worth three times as
+much. The 17 are already worth ~$140 an action, which is the return on taking
+only the good ones.
+
+That also explains tetsuya's 132: they water **853** against the consensus 909.
+A farm with fewer waterable tiles lets fertilising win more often. It is a
+different farm shape, not a scheduling trick.
+
+### What was tried on this line
+
+| change | held out vs v24 |
+| --- | --- |
+| baseline | +$2,407 |
+| **source fertilizer from the herd, not the shed** | **+$2,534** (kept) |
+| `work_in_passing` on | +$1,986 |
+| `fertilizer_reserve` 8 | -$3,951 |
+| `water_before_harvest` on | +$1,040 |
+
+Only the herd-sourcing helps, and only slightly -- it takes the cheaper of the
+shed route and the nearest animal, so it is never worse by construction, and
+FERTILIZE count barely moves (17 -> 18). The shed round trip was not the
+constraint either.
+
+**Five scheduling heuristics have now been tried on this agent and four lost.**
+The greedy with correctly-priced jobs is a stronger baseline than it looks, which
+is the main argument against building a per-unit route planner: it would have to
+beat a ranking that the evidence says is already right.
+
 ## The top 20 is one agent, and the gap is execution not strategy
 
 Pulled 2026-08-19 with `lab/scout.py`, profiled with `lab/profile_top.py`. The

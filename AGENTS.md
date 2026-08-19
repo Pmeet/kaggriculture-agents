@@ -295,6 +295,56 @@ worth 30 rating points. The ladder decides.
 Still short of the top agents: 33.6% working against THUNDER's 41.2%, and 1.66
 walk per job against 1.02. The remaining gap is now mostly crop-side routing.
 
+## The top 20 is one agent, and the gap is execution not strategy
+
+Pulled 2026-08-19 with `lab/scout.py`, profiled with `lab/profile_top.py`. The
+route is not obvious and is worth writing down: `ListEpisodes` needs a submission
+id, the leaderboard only gives team ids, and
+`SubmissionService/ListTeamPublicSubmissions` bridges them -- but only with a
+browser session (cookie + `x-xsrf-token`), not the API token.
+
+**Fifteen of the twenty-two teams profiled are behaviourally identical**, matching
+within 2% on every action count: water 909, harvest 399, plant 184, fertilize 70,
+12 hands, 14 animals, walk 1.32 tiles a job. That is a shared public notebook, not
+fifteen strategies. Only three profiles are meaningfully distinct.
+
+So the pool needs **three opponents, not twenty**:
+
+| | consensus (15 teams) | tetsuya (rank 1) | ReCurSiON (rank 3) | **ours (v25)** |
+| --- | --- | --- | --- | --- |
+| work % of actions | 39.6 | 39.4 | **42.6** | **30.7** |
+| walk per job | 1.32 | 1.05 | **1.02** | **1.87** |
+| walk per animal job | 0.77 | 0.43 | **0.35** | **1.48** |
+| hands / animals | 12 / 14 | 12 / 15 | 14 / 13 | 12 / 12 |
+| WATER | 909 | 853 | 1010 | 852 |
+| HARVEST | 399 | 413 | 390 | **271** |
+| PLANT | 184 | 198 | 199 | 186 |
+| FERTILIZE | 70 | **132** | 72 | **0** |
+| FEED / CARE | 321 / 318 | 349 / 349 | 290 / 285 | 269 / 265 |
+| DIG | 31 | 33 | 41 | **57** |
+
+**The crop mix is no longer the gap.** We plant essentially their farm: wheat 121
+against 125, strawberry 46 against 42, melon 19 against 12, carrot 0 against 5.
+The v23-v25 work closed what the 08-11 replay study identified. What is left is
+entirely execution:
+
+1. **HARVEST 271 against 399.** We grow the same farm and pick a third less of it.
+2. **FERTILIZE 0 against 70**, and tetsuya -- the rank 1 agent -- runs **132**.
+   The single clearest thing the best agent does that nobody else does.
+3. **walk per job 1.87 against 1.32**, and 1.48 against 0.77 on animal tiles.
+4. **DIG 57 against 31.** We spend 26 extra actions clearing weeds, which is a
+   symptom: tiles die because they were not harvested in time.
+
+Note what is *not* different: hands, quadrants, water, plant counts are all level.
+This is not a strategy deficit any more, it is throughput.
+
+### What to build, given the monoculture
+
+Three opponents, in order of value: the consensus notebook (it is 15 of the top
+20, so it is what the ladder actually pairs us against), tetsuya's
+fertilizer-heavy variant, and ReCurSiON's 14-hand high-water variant. Anything
+beyond those three is re-implementing the same agent.
+
 ## The last day was still farming, not liquidating
 
 Spotted by Meet in a v24 replay against Rakhansyah: on days 29 and 30 the farm is

@@ -113,14 +113,32 @@ pair walks toward the nearest unclaimed job.
 **This is recomputed from scratch every turn, with no memory of the previous
 turn's assignment.**
 
-Measured performance:
+Measured performance. Each row is one agent measured in one pass, so the three
+action shares sum to 100 (an earlier version of this table mixed agents and
+versions across columns and did not — thank you to the reader who caught it):
 
-| | ours | best competitor | best in field |
+| | ours | HealthStone | THUNDER THUNDER |
 |---|---|---|---|
-| moving | 55.6% | 42.3% | 42.3% |
-| idle | 16.9% | 16.5% | 9.4% |
-| **working** | **30.7%** | **41.2%** | **42.6%** |
-| tiles walked per job done | **1.87** | **1.02** | **1.02** |
+| moving | 56.4% | 52.8% | **42.3%** |
+| idle | **12.1%** | 9.4% | 16.5% |
+| **working** | **31.6%** | 37.8% | **41.2%** |
+| `r` = tiles walked per job | **1.79** | 1.39 | **1.02** |
+
+**The decomposition is exact.** Work fraction is fully determined by idle
+fraction and `r`:
+
+```
+work = (1 - idle) / (1 + r)
+```
+
+Checked against all three agents: predicted 31.5 / 37.9 / 41.3 against measured
+31.6 / 37.8 / 41.2. There are therefore exactly **two** levers, and only one of
+them is ours to pull: **our idle share is already the best of the three.** The
+entire deficit is `r`.
+
+At our current idle of 12.1%, reaching `r = 1.02` would give **43.5% working** --
+above the best agent on the board. So the problem reduces cleanly to: **get `r`
+from 1.79 to about 1.0.** Nothing else in the action budget matters.
 
 ---
 

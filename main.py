@@ -334,6 +334,13 @@ DEFAULTS = {
     # animal drops one fertilizer a day and COLLECT_FERTILIZER is already a job
     # on that tile, so the shed round trip is often avoidable entirely.
     "fertilizer_from_herd": True,
+    # Diagnostic scales on two job prices. Reading the value table only shows what
+    # the agent *believes*; perturbing a price and watching the bank tests whether
+    # the belief is right. A correctly-priced job loses money when scaled either
+    # way -- if scaling up helps, it was underpriced and the ranking inherited the
+    # error.
+    "fertilize_value_scale": 1.0,
+    "water_value_scale": 1.0,
     # Take the last window watering before harvesting a one-time crop. It does
     # what it says -- mean peak wheat yield 2.6 -> 3.2 of 4, and 62 of 112 tiles
     # reach 4 where none did before -- and it still **loses**: -$1,367 held out
@@ -1314,7 +1321,8 @@ def build_jobs(obs, farm, private, params, depots, day, hours_left, endgame, inf
                     # so more yield per tile is the only margin left.
                     edge = min(edge, params["fertilize_saturated_edge"])
                 if worth > edge * marginal_price("FERTILIZER"):
-                    add(pos, ["FERTILIZE"], worth, "FERTILIZE", need="FERTILIZER")
+                    add(pos, ["FERTILIZE"], worth * params["fertilize_value_scale"],
+                        "FERTILIZE", need="FERTILIZER")
 
         # An ongoing crop only banks the fertilizer bonus on a day it is also
         # watered, so a fertilized plant must be watered on its production days.
@@ -1335,7 +1343,7 @@ def build_jobs(obs, farm, private, params, depots, day, hours_left, endgame, inf
             else:
                 pending = max(1, crop_units(crop) - held)
             value += pending * unit_price * 0.8
-        add(pos, ["WATER"], value, "WATER")
+        add(pos, ["WATER"], value * params["water_value_scale"], "WATER")
 
     # ---- Fill empty tiles: livestock pens near the shed, crops further out.
     wanted, by_distance, n_struct = [], [], 0

@@ -379,6 +379,44 @@ stays so the result is not rediscovered.
 over 200 games a seed set. Gate clean: 104 tests, ruff, validator zero issues and
 no stranded livestock, every game DONE, shed empty, p95 1.00ms.
 
+## Perturbing a job price tests it; reading it only reports a belief
+
+The value table below shows what the agent *believes* each job is worth. To test
+whether the belief is right, scale one job's price and watch the bank: a
+correctly-priced job loses money when moved either way. Two diagnostic knobs
+exist for this, `fertilize_value_scale` and `water_value_scale`, both 1.0.
+
+**FERTILIZE is priced irrelevantly, not wrongly.** Over an eightfold range the
+result does not move: held out against v24, x0.5 gives +$2,477, x1 +$2,483, x2
++$2,310, x4 +$2,732 -- all inside noise. Even at four times its price it is still
+far below watering, so the ranking never changes. That settles the earlier
+question: we fertilise 17 times because the job is genuinely low-value, and no
+re-pricing reaches it.
+
+**WATER is where it gets interesting, and it is a dispersion result.** Over 40
+held-out games against v24:
+
+| variant | win rate | mu | sigma | mu/sigma | Phi | worst bank |
+| --- | --- | --- | --- | --- | --- | --- |
+| **baseline** | **0.900** | +$2,483 | **$2,954** | **0.84** | **0.800** | **$53,071** |
+| water x0.7 | 0.700 | **+$5,950** | $8,482 | 0.70 | 0.758 | $36,701 |
+| water x1.4 | 0.775 | +$3,404 | $6,206 | 0.55 | 0.708 | $51,859 |
+
+Under-pricing watering **more than doubles the average margin** -- +$5,950
+against +$2,483 -- and *loses* two hundred points of win rate, because sigma
+nearly triples and the worst game drops $16k. Steering on margin alone would
+have taken it.
+
+This is the concrete case for the Pr[win] = Phi(mu/sigma) objective, and it is
+the first time the two metrics have pointed in opposite directions on this
+agent. **Report mu, sigma and the win rate together; never accept a margin gain
+without checking sigma.** `lab/ab.py` reports score and margin side by side for
+exactly this reason.
+
+Watering is also the agent's variance control: it is the job that prevents total
+loss on a tile, so pricing it high trades expected margin for reliability. That
+is the right trade when the objective is wins.
+
 ## Why FERTILIZE fires 17 times, and why that is close to correct
 
 Chased on Meet's suggestion that free daily fertilizer plus idle units should
@@ -1009,7 +1047,11 @@ honest, and it is the one that was being skipped.
    reads. Hand-picking a benchmark pair goes stale the moment a newer agent
    climbs past it, and then every measurement is taken against something we have
    already beaten.
-2. **Score the candidate against them**, at 40 seeds or more.
+2. **Score the candidate against them**, at 40 seeds or more. `lab/ab.py` and
+   `lab/postmortem.py` enforce a **20-seed floor** (`lab.ab.MIN_SEEDS`) and raise
+   anything lower, because below it the win-rate interval is wider than any
+   improvement we have shipped. Twenty is the floor for a quick read; 40+ for
+   anything heading to the ladder. `--allow-small` overrides it for debugging.
    `python lab/ab.py --seeds 40 --opponent benchmarks --variant 'cand:{}'`
    Then against the recent field, which is the harder bar and the default:
    `python lab/ab.py --seeds 40 --variant 'cand:{}'`

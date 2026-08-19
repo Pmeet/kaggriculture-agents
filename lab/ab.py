@@ -24,6 +24,13 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from lab.arena import run_match  # noqa: E402
 
+# Fewer than this decides nothing. A 24-seed paired match (48 games) already
+# carries a +/-0.19 interval on win rate; at 10 seeds the interval is wider than
+# any improvement we have ever shipped, and the same candidate has scored 0.900
+# on one 5-seed set and 0.750 on another. Twenty is the floor, not the target --
+# 40+ for anything heading to the ladder.
+MIN_SEEDS = 20
+
 
 def evaluate(module, params, opponent, seeds, workers):
     spec = {"module": module, "attr": "make_agent", "params": params, "name": "cand"}
@@ -39,10 +46,17 @@ def main():
                              "submissions, default), 'benchmarks', a version label "
                              "(v21), an inclusive range (v18..v21), or module:attr")
     parser.add_argument("--seeds", type=int, default=24)
+    parser.add_argument("--allow-small", action="store_true",
+                        help=f"permit fewer than {MIN_SEEDS} seeds (debugging only)")
     parser.add_argument("--workers", type=int, default=16)
     parser.add_argument("--variant", action="append", default=[],
                         help="name:{json} , repeatable")
     args = parser.parse_args()
+    if args.seeds < MIN_SEEDS and not args.allow_small:
+        print(f"{args.seeds} seeds is {MIN_SEEDS * 2 - args.seeds * 2} games short of the "
+              f"{MIN_SEEDS}-seed floor; raising to {MIN_SEEDS}. "
+              f"Pass --allow-small to override.")
+        args.seeds = MIN_SEEDS
 
     import importlib
     module = importlib.import_module(args.module)

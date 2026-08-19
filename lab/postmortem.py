@@ -28,6 +28,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 TPD = 24
 
+from lab.ab import MIN_SEEDS  # noqa: E402  the one floor, defined once
+
 
 def _one(job):
     """Play one game and return per-game features. Must be top-level to pickle."""
@@ -93,11 +95,13 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--candidate", default="main:agent")
     parser.add_argument("--opponent", default="v24")
-    parser.add_argument("--seeds", type=int, default=400)
+    parser.add_argument("--seeds", type=int, default=400,
+                        help=f"minimum {MIN_SEEDS}; fewer decides nothing")
     parser.add_argument("--start", type=int, default=5000,
                         help="first seed; keep clear of search (1-) and holdout (1001-)")
     parser.add_argument("--workers", type=int, default=16)
     args = parser.parse_args()
+    args.seeds = max(MIN_SEEDS, args.seeds)
 
     from lab.versions import expand
     opp = expand(args.opponent)[0]

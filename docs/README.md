@@ -13,3 +13,12 @@ updates -- republish the same file rather than creating a second one.
 | 2026-08-19 | [The Compute Question](2026-08-19-compute-and-self-play.html) — whether a cloud compute farm and mass self-play would reach the top of the ladder, and what to build instead | https://claude.ai/code/artifact/9803fc62-fa57-4e7a-968d-8bd331d25e14 |
 
 Open it locally with any browser; it is a single self-contained file.
+
+## Open problems
+
+Self-contained problem statements, written to be pasted to other models or
+people. They carry their own measured numbers, so they need no repo context.
+
+| File | Question |
+| --- | --- |
+| [walking-gap-problem.md](walking-gap-problem.md) | Our scheduler spends 56% of its action budget walking against the field's 42%. Formalise the routing problem, explain why per-turn optimal assignment loses to per-turn greedy, and give an algorithm that fits 1000 ms/turn. |

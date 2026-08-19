@@ -295,6 +295,47 @@ worth 30 rating points. The ladder decides.
 Still short of the top agents: 33.6% working against THUNDER's 41.2%, and 1.66
 walk per job against 1.02. The remaining gap is now mostly crop-side routing.
 
+## The last day was still farming, not liquidating
+
+Spotted by Meet in a v24 replay against Rakhansyah: on days 29 and 30 the farm is
+still watering wheat that cannot reach yield before the season ends. Correct, and
+the mechanism is worse than the symptom.
+
+Two separate faults, both provable from the engine:
+
+1. **HARVEST was withheld until max yield.** The gate was `age >= harvest_age or
+   held >= max_yield`, with `endgame` as the only override -- and `endgame` is
+   `step >= EPISODE_STEPS - 2`, the last **two turns of 720**. Wheat planted
+   around day 25 therefore sat ripe and unpicked through the end of the game.
+2. **Watering on the final day mostly cannot pay.** A plant lost to
+   `consecutive_unwatered` dies in `_daily_refresh_plants`, which runs *after*
+   the last sale, so `must_water` protects nothing. An ongoing crop's yield is
+   credited in that same nightly refresh, so watering strawberry or tomato on
+   day 29 is worth exactly zero. Only a non-ongoing crop inside its window
+   converts the turn into units that can still be picked, because that bonus
+   lands immediately.
+
+Measured before the fix, over three seeds: **$5,445 of ripe crop standing in the
+field and $1,451 in units' hands** at the final step, ~$6,900 a game.
+
+Fixed with a `liquidate_days` window (default 1). Inside it, harvest anything
+ripe regardless of max yield, drop `must_water` entirely, and drop watering of
+ongoing crops. Half a fix moved the loss rather than removing it -- the field
+emptied to $2 and units' hands *rose* to $3,372 -- so it needs the second half:
+
+**Last train home.** On the final day a loaded unit keeps working only while it
+can still get back. Once `distance to shed + 2 >= hours_left` it banks, because
+anything in hand at step 720 is worth nothing.
+
+| | before | after |
+| --- | --- | --- |
+| ripe left in field | $5,445 | $95 |
+| carried at final step | $1,451 | $849 |
+
+Against v24 and v23 over 24 seeds a side: **0.812 search / 0.844 held out,
++$3,234 / +$3,745** (v24 +$1,806, v23 +$5,684). `liquidate_days` 2 ties it
+(0.833, +$3,849) and 3 is worse (0.812, +$3,044), so the window stays at 1.
+
 ## How cattle and crops actually compete -- and why relaxing it does nothing
 
 Asked directly, and the answer is that they do not compete on value anywhere.

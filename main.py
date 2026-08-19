@@ -146,6 +146,13 @@ DEFAULTS = {
     "sell_floor_frac": 0.2535,
     "max_price_impact": 0.2794,
     "endgame_relax_days": 1.6,
+    # Days at the end of the season spent liquidating rather than growing. On
+    # the final day a plant that dies at nightfall dies *after* the last sale,
+    # so `must_water` protects nothing; an ongoing crop banks its yield in
+    # `_daily_refresh_plants`, which never runs; and holding a ripe tile back
+    # for max yield means never picking it at all. Measured stranded before
+    # this existed: ~$5,445 ripe in the field and ~$1,451 in units' hands.
+    "liquidate_days": 1,
     "seed_buffer": 10,
     "min_cash": 30,
     # --- Routing.
@@ -1210,7 +1217,11 @@ def build_jobs(obs, farm, private, params, depots, day, hours_left, endgame, inf
         unit_price = marginal_price(crop)
         ripe = held > 0 and age >= cd["first_yield_day"]
 
-        if ripe and (endgame or age >= harvest_age(crop) or held >= cd["max_yield"]):
+        # The season ends within `liquidate_days`: take what is on the tile
+        # rather than waiting for a yield the clock will not reach.
+        final = (LAST_DAY - day) < params["liquidate_days"]
+        if ripe and (endgame or final or age >= harvest_age(crop)
+                     or held >= cd["max_yield"]):
             add(pos, ["HARVEST"], held * unit_price, "HARVEST")
             continue
         if endgame or tile.get("watered_today"):
@@ -1219,6 +1230,14 @@ def build_jobs(obs, farm, private, params, depots, day, hours_left, endgame, inf
         must_water = tile.get("consecutive_unwatered", 0) >= 1
         start, end = water_window(crop)
         in_window = (not cd["ongoing"]) and start <= age <= end and held < cd["max_yield"]
+        if final:
+            # Nothing that lands at end of day can still be sold. A plant lost
+            # tonight is lost after the last sale, and an ongoing crop's yield
+            # is credited in the nightly refresh. Only a non-ongoing crop in its
+            # window converts this turn's water into units we can still pick.
+            must_water = False
+            if cd["ongoing"]:
+                in_window = False
         # Fertilizer is worth what it grows, against what it would fetch sold.
         # On strawberry that is roughly seven times better than selling it.
         if shed.get("FERTILIZER", 0) > 0 or carried.get("FERTILIZER", 0) > 0:
@@ -1615,7 +1634,7 @@ def _order_pairs(mode, pairs, jobs, n_units, params, seeds, stock, carrying):
 
 
 def assign_units(units, jobs, depots, hours_left, seeds, params, shed, endgame,
-                 shed_total, action_cost, supplies=(), quadrants=1):
+                 shed_total, action_cost, supplies=(), quadrants=1, day=None):
     """Greedy matching on ``value - distance * action_cost``.
 
     Pricing a walk at its real opportunity cost keeps units working the tile in
@@ -1733,6 +1752,8 @@ def assign_units(units, jobs, depots, hours_left, seeds, params, shed, endgame,
     # for the rest of the game while its pen stands empty. Measured on seed 2:
     # ten animals in hand at the final step against ten empty pens, ~$4.6k of
     # livestock bought, picked up, and never delivered.
+    final_day = day is not None and (LAST_DAY - day) < params["liquidate_days"]
+
     place_targets = {}
     for job in jobs:
         if job["kind"] == "PLACE" and len(job["action"]) >= 2:
@@ -1767,6 +1788,23 @@ def assign_units(units, jobs, depots, hours_left, seeds, params, shed, endgame,
         # job -- it is the only route those units have to a market at all.
         load = sum(v for k, v in inv.items()
                    if v > 0 and k in PRODUCTS and k not in supplies)
+        # Last train home. On the final day anything still in a unit's hands at
+        # step 720 is worth nothing -- the nightly drop into the shed happens
+        # after the last sale. So a loaded unit keeps working only while it can
+        # still get back: once the walk plus the drop plus a turn for the sale
+        # is all the day has left, it banks. Without this the harvest fix simply
+        # moved the stranded value out of the field and into units' hands.
+        if final_day and load > 0 and room > 0:
+            target = nearest_shed(pos, depots)
+            if distance(pos, target) + 2 >= hours_left:
+                if tuple(pos) == tuple(target):
+                    room = max(0, room - load)
+                    actions.append(["DROP"])
+                    continue
+                move = step_toward(pos, target)
+                if move:
+                    actions.append(move)
+                    continue
         if load >= params["carry_limit"] and room > 0:
             target = nearest_shed(pos, depots)
             if tuple(pos) == tuple(target):
@@ -2275,7 +2313,7 @@ def _play(obs, params):
         unit_actions = assign_units(
             units, jobs, depots, hours_left, private["seeds"], params,
             shed, endgame, shed_total, action_cost, supplies,
-            len(farm["unlocked_quadrants"]),
+            len(farm["unlocked_quadrants"]), day,
         )
 
     # The unit phase runs before the market phase, so anything a hand is about

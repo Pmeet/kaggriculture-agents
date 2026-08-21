@@ -392,14 +392,42 @@ claims "jobs here are intrinsically better", while a route says "their marginal
 travel is zero but the work action still consumes scarce capacity". Those are
 different claims and the second is right.
 
-**Built as `plan_routes`, behind `route_planner`. It measures -$32,675 held out
-against v25 at a 0.000 win rate, so it is off and unshipped.**
+**Built as `plan_routes`, behind `route_planner`. Now at -$17,830 held out
+against v25, down from -$32,675, still a 0.000 win rate, still off.**
+
+Two defects found and fixed, each worth roughly $15k, and both were in the
+*selection* rule rather than in the routing:
+
+1. **Unrouted units were abandoned.** A route only accepts a job whose value
+   clears the travel to reach it, so a unit standing far from anything worthwhile
+   got no route -- **42% of unit-turns**. Those units fell through to the
+   nearest-job filler, which ignores value entirely. They now fall back to the
+   greedy pairs instead.
+2. **Insertions were ranked on absolute gain, not rate.** The shipped ordering is
+   `rate`: net value divided by the turns the assignment *occupies*, because a
+   $400 job four tiles away is worth less than a $340 job next door that frees
+   the unit four turns sooner. The planner threw that away and ranked on raw
+   gain. Ranking insertions by `gain / delta` recovered about half the loss.
+
+The second is the more instructive: the planner never had a routing problem, it
+had a scoring problem, and the scoring rule it discarded was the one already
+doing the work. Any future attempt should keep `rate` as the insertion criterion
+from the start.
+
+**A route-length sweep also refutes the obvious next hypothesis.** Tails reserve
+jobs exclusively, which could starve other units of work they could do now -- but
+`route_max_len` 1, which has no tails at all, measures -$39,304. The loss is not
+in the tails. It is in the head selection, which is why the two fixes above are
+worth what they are and why length barely matters (4, 8 and 12 all land within
+$2.5k of each other).
 
 What works: routes persist across turns via `job_key` and are repaired rather
 than rebuilt; regret insertion places the job that fits in fewest routes first;
-positions are re-costed when an insertion invalidates them. Travel per job falls
-**1.87 -> 1.78**, below the greedy baseline, which is the first time anything has
-moved that number in the right direction.
+positions are re-costed when an insertion invalidates them; routes are genuinely
+multi-stop early in the day (mean length 6.67 at hour 0, decaying with the budget
+to 0.56 by hour 21, which is correct). An earlier build got travel per job to
+**1.78**, below the greedy baseline -- the only time anything has moved that
+number the right way, though the current rate-ranked build sits at 1.93.
 
 What is missing, and it is the half that pays:
 

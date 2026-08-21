@@ -1831,10 +1831,18 @@ def plan_routes(units, jobs, hours_left, action_cost, params, previous, supply_e
                 gain = job["value"] - delta * action_cost
                 if gain <= 0:
                     continue
-                cand = (gain, ui, at)
-                if best is None or gain > best[0]:
+                # Rank by return *rate*, not absolute gain. An insertion that
+                # nets $400 while occupying five actions is worth less than one
+                # netting $340 for one, because the second frees the unit four
+                # turns sooner to earn again. This is the same trade the shipped
+                # `rate` ordering makes, and ranking on raw gain instead is what
+                # made the first three builds of this planner lose: it threw away
+                # the scoring rule that was already doing the work.
+                rate = gain / max(1.0, float(delta))
+                cand = (rate, ui, at, gain)
+                if best is None or rate > best[0]:
                     best, second = cand, best
-                elif second is None or gain > second[0]:
+                elif second is None or rate > second[0]:
                     second = cand
         return best, second
 
@@ -1858,7 +1866,7 @@ def plan_routes(units, jobs, hours_left, action_cost, params, previous, supply_e
     while queue:
         entry = queue.pop(0)
         _regret, _gain, ji, best, seen = entry
-        gain, ui, at = best
+        _rate, ui, at, _g = best
         if seen != version[ui]:
             fresh, second = best_two(ji)
             if fresh is None:
@@ -2001,13 +2009,23 @@ def assign_units(units, jobs, depots, hours_left, seeds, params, shed, endgame,
     stock_budget = {item: shed.get(item, 0) for item in pickup_needs}
     ordered = pairs
     if planned is not None:
-        # One entry per unit: its route head, scored so the budget checks below
-        # read the same as they do for a matched pair.
+        # One entry per routed unit: its route head, scored so the budget checks
+        # below read the same as they do for a matched pair.
+        #
+        # A route only accepts a job whose value clears the travel to reach it,
+        # so a unit standing far from anything worthwhile gets no route at all --
+        # 42% of unit-turns in the first build. Those units must still fall back
+        # to the greedy pairs, or they drop to the nearest-job filler, which
+        # ignores value entirely. Routing some units and abandoning the rest was
+        # most of why the first planner lost.
         ordered = []
+        routed = set()
         for ui, seq in enumerate(planned):
             if seq:
                 ordered.append((jobs[seq[0]]["value"], 0, ui, seq[0]))
+                routed.add(ui)
         ordered.sort(reverse=True)
+        ordered.extend(p for p in pairs if p[2] not in routed)
 
     for score, _negdist, ui, ji in ordered:
         if ui in taken_unit or ji in taken_job:

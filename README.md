@@ -8,7 +8,7 @@ uploads anything on its own.
 ## Quick Start
 
 The research environment is a Linux virtualenv at `~/.venvs/kaggri`
-(Python 3.12.13, `kaggle-environments==1.32.6`, `kaggle==2.2.4`). That version
+(Python 3.12.13, `kaggle-environments==1.32.7`, `kaggle==2.2.4`). That version
 is the post-rebalance engine the ladder runs, and every measurement belongs
 there. The Windows `.venv/` in the repository is **stale** — it is still on
 1.32.3, the pre-rebalance engine, and is not a parity check. See the Environment
@@ -34,7 +34,7 @@ To rebuild the research environment:
 
 ```bash
 uv venv --python 3.12 ~/.venvs/kaggri
-VIRTUAL_ENV=~/.venvs/kaggri uv pip install "kaggle-environments==1.32.6" "kaggle==2.2.4" ruff
+VIRTUAL_ENV=~/.venvs/kaggri uv pip install "kaggle-environments==1.32.7" "kaggle==2.2.4" ruff
 ```
 
 `kaggle-environments` prints unrelated OpenSpiel/CABT loader warnings on first

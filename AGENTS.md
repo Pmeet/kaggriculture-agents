@@ -1,6 +1,6 @@
 # Kaggriculture Agent Handoff
 
-Last updated: 2026-08-12 (Asia/Calcutta)
+Last updated: 2026-08-19 (Asia/Calcutta)
 
 Durable handoff for any agent continuing this work. Read with `README.md` and
 `ROADMAP.md`.
@@ -38,13 +38,27 @@ them. Steer on head-to-head paired bank margin against the last frozen snapshot
 
 ### The ladder is the only honest signal, and it says we are mid-pack
 
-Read on 2026-08-11 from the live API. **Rank 1929 of 3809; rating 717.7 against
-a median of 726.9 and a leader at 3192.8.** Matchmaking pairs us with agents
-rated 437-924, and across the 52 completed games of our two live submissions we
-are **28-24 (0.54)**. Our banks in those games run $24k-$121k -- a left tail that
-never appears locally, where the same agent banks a tight $76-93k.
+Read **2026-08-19** from the live API. **Rank 2529 of 5202; rating 769.2**
+against a field median of 741.5 and a leader at 3182.0. Local gauntlet ~1.0,
+ladder ~0.46. Trust the ladder.
 
-So: local score ~1.0, ladder score ~0.54. Trust the ladder.
+Percentile has not moved in eight days: 1929/3809 on 08-11 was the 51st
+percentile, 2529/5202 today is the 49th. The rating rose 717.7 -> 769.2 and
+bought nothing, because the whole field rose with it.
+
+**The distribution is what matters, and it is bimodal.** Median 741.5, but p75
+is 1648.1 and p90 is 2225.4. Half the board is parked near 740 (single or
+abandoned submissions); the real competition starts around 1600. We are at the
+top of the parked half, not the bottom of the serious one.
+
+| target | rating needed | ours |
+| --- | --- | --- |
+| top 5 (the goal) | ~2,920 | 769.2 |
+| top 100 | 2,677.2 | |
+| top 500 | 2,240.6 | |
+
+Closing that is not a tuning problem. Nothing in the parameter-search layers
+moves a rating by 4x.
 
 ### What the 3,200-rated agents actually do
 
@@ -75,48 +89,814 @@ looks like.
 
 ### Live submissions
 
-Read 2026-08-14. Active pair is **v19 (55503782)** and **v18 (55465607)**; v17
-aged out. Frozen copies: v18 = `agents/baseline_k.py`, v19 = `agents/baseline_l.py`.
+Read 2026-08-19. Active pair is **v21 (55512749)** and **v22 (55521764)**.
+Frozen copies: v21 = `agents/baseline_n.py`, v22 = `agents/baseline_o.py`.
 
-| | games | record | rating | worst bank | median bank |
+| | games | record | rating | median bank | opp mean bank | mean opp rating |
+| --- | --- | --- | --- | --- | --- | --- |
+| v20 | 38 | 22-16 (0.58) | 788.8 | $66,817 | $69,791 | 746 |
+| v21 | 95 | 43-52 (**0.45**) | 769.2 | **$75,088** | **$82,303** | 796 |
+| v22 | 85 | 40-45 (0.47) | 763.7 | $71,284 | $80,466 | 778 |
+| v18 | 56 | 30-26 (0.54) | 767.7 | $70,100 | $70,027 | 747 |
+
+Read the first two columns together and the agent looks broken: **v21 has the
+highest median bank we have ever put on the ladder and the worst record.** It is
+not broken. It is playing a different field.
+
+### The field is inflating faster than we are improving
+
+The controlled version, which removes every confound because the agent is frozen
+code: split v21's own 95 games by day.
+
+| day | games | mean opp rating | our bank | opp bank | rate |
 | --- | --- | --- | --- | --- | --- |
-| v19 | 31 | 16-15 (0.52) | 717 | **$42,524** | $70,354 |
-| v18 | 56 | 30-26 (0.54) | 704 | $19,963 | $70,794 |
+| 08-14 | 35 | 785 | $77,539 | $75,960 | 0.57 |
+| 08-15 | 18 | 826 | $69,695 | $92,063 | 0.28 |
+| 08-16 | 18 | 776 | $71,853 | $69,816 | 0.67 |
+| 08-17 | 16 | 816 | $76,872 | $90,298 | 0.25 |
+| 08-18 | 8 | 788 | $68,311 | **$100,197** | 0.25 |
 
-**The left tail has halved.** v19's worst game banks $42.5k where v18's banks
-$20k, against the same median. That was the largest structural problem on the
-ladder and the proportional reserve plus the commitment-priced assignment
-between them appear to have fixed most of it.
+Compare the first and last rows. **Opponents rated 785 banked $75,960 on 08-14;
+opponents rated 788 banked $100,197 on 08-18** -- the same rating buys a 32%
+stronger economy four days later. Our own bank is flat across the whole table.
+v22 shows the same drift over its shorter life ($79,011 -> $85,066 opponent
+bank, 0.53 -> 0.29).
 
-**The margins did convert; the win rate is a different problem.** Split the
-ladder games by result:
+Three consequences, and the third is the expensive one:
 
-| | winning margin (mean) | losing margin (mean) | decided by < $10k |
+1. **A rating is only comparable to ratings earned the same week.** v20's 788.8
+   was won against a 746 field and has been frozen since 08-15; v22's 763.7 is
+   being marked to a 778 field today. Ranking them against each other, which is
+   exactly what `lab/benchmarks.py` does, silently prefers the older agent. The
+   minimum-games guard does not help -- it makes it worse, by favouring agents
+   that have stopped playing.
+2. **Standing still loses ground.** Percentile is flat over eight days while the
+   rating climbed 50 points. Any week without a shipped improvement is a week of
+   decline.
+3. **Incremental margin work has stopped paying.** The prior read said the lever
+   was "win the close games", because 39% were decided by under $10k and we were
+   level with the field on banks. That was true on 08-14 and is not true now: at
+   v21's last measured day we are outbanked by **$31,886 on average**, and only
+   25% of its games are close. There is no endgame precision worth $32k. The
+   lever is back to economy, and it is the crop economy -- see the wheat line in
+   *Open leads*, still 28 sold against the top agents' 433.
+
+## The ladder moved to 1.32.7 on 2026-08-15, and it repriced scarcity
+
+Found 2026-08-19 from stickied staff topic 735311, "Small balance change"
+(Bovard Doerschuk-Tiberi, 2026-08-15 00:30Z); `kaggle-environments` 1.32.7
+published 01:35Z the same night. **The second time this has happened silently.**
+
+Verified rather than inferred: replay 94245846 (v21, played 08-18) disagrees with
+1.32.6 on five sampled prices and with 1.32.7 on none. The research venv has been
+upgraded; the ladder runs 1.32.7 and so do we.
+
+What changed -- a new `hinge` shape on the **scarcity** side only, for three
+products:
+
+| product | before | after | scarce price at the deficit our games reach |
 | --- | --- | --- | --- |
-| v19 | **+$22,618** | **-$16,289** | 39% |
-| v18 | +$16,411 | -$20,545 | 39% |
+| CARROT | `log`, 0.20 | `hinge`, **1.00** | -549: $42 -> **$91** |
+| TOMATO | `linear`, 0.40 | `hinge`, 0.40 | -369: $104 -> **$241** |
+| EGG | `linear`, 0.40 | `hinge`, 0.40 | -550: $83 -> **$152** |
 
-v19 wins bigger *and* loses smaller than v18 on real opponents, so the local
-gains are showing up. What has not moved is the win/loss split, because **39% of
-ladder games are decided by under $10,000**. A general margin improvement
-spreads itself across every game instead of converting the marginal ones, and
-the record is decided by that pile of coin-flips.
+`hinge` is linear in x/T below the knee and picks up a quadratic term (gain 8)
+above it, so price is calm until a product is genuinely scarce and then runs
+away. Crops, animals, lifecycles and every glut-side curve are untouched.
 
-So the lever for rating is no longer "bank more" -- it is **win the close games**.
-Endgame precision is where a few thousand dollars changes a result: stranded
-livestock, an unfilled pen, a weed left standing, a last-day sale mistimed. Each
-is worth little on average and could be worth a game in the 39%.
+**This is almost certainly what the "field inflation" reading was.** Opponent
+banks jumped from ~$76k on 08-14 to ~$100k on 08-18 against a fixed v21 -- and
+08-15 is when the engine started paying several times more for three products.
+Prefer this explanation to "the field got better at farming" until something
+distinguishes them.
 
-v19 also has only 31 games to v18's 56, and ratings converge slowly, so some of
-the gap is simply youth.
+### What staff said, and what a competitor measured
 
-**Also read the win rates.** Locally v19 beats v15 by $10,184 and v18 by $6,922
-over the season, at 0.70-0.82 paired score. On the ladder it plays 0.52 against a
-field averaging 737, barely apart from v18's 0.54. Large local margins are
-converting into very little win rate against real opponents -- and win rate is
-what the rating is made of. That gap is now the central open question, and it is
-the same shape as the very first one this project hit: the local pool, even a
-ladder-proven one, is not the field.
+Topic 735311, in full. Bovard (staff): the change makes egg, tomato and carrot
+"increase significantly if there is a large shop demand and no production", with
+stated firing rates **assuming no production** of tomato 50%, carrot 26%, egg 22%
+of games. Intent: "roughly preserve the existing market dynamics, but make these
+products viable in some situations, not universally... more interesting end game
+decisions." Implementation is Kaggle/kaggle-environments PR #1399. **"This should
+be the last change, excepting game breaking bugs."**
+
+destbreso (754th) independently reproduced it over 120 replayed episodes, and
+their numbers change how much we should want this:
+
+- Firing rates land close to stated: tomato 55.0%, carrot 28.3%, egg 25.8%.
+  Melon is the control -- untouched, in no shop menu, 0 of 120 crossings.
+- **The median game is the old game.** Median scarcity sits just *below* each new
+  knee (tomato 219 v 200, carrot 316 v 450, egg 228 v 332), and dumping 100 units
+  at median scarcity pays **1.00x** the old revenue for tomato and egg. It is ~2x
+  at p90, and the large multiples appear only in the deepest game of 120.
+- **Egg never reaches the money**: 1.00x at median and p75, 1.06x at p90.
+- Carrot's `below_target` 0.20 -> 1.00 is real and unannounced -- they flagged the
+  same omission we found independently.
+- Switching build with agent, seed and opponent fixed moved 118 of 224 banks and
+  **changed 0 of 224 winners**. Recorded episodes replay identically on either
+  build, 40 of 40 to the dollar.
+
+So this is a **dispersion change, not a level change**: nothing at the median, a
+long tail in the minority of games with a big shop draw and no producer. Our
+"largest untouched line item" framing was too strong -- it is a conditional tail
+opportunity in roughly a quarter to a half of games, and egg is likely not worth
+chasing at all.
+
+### The objective is Pr[win], not margin -- and that is our open question answered
+
+destbreso's closing point is the most useful thing in the thread. A change that
+adds nothing to the median and much to the tail moves **dispersion**, and
+"dispersion and expectation point different ways depending on whether you are
+ahead or behind". They argue the objective is **Pr[win] = Phi(mu/sigma)** rather
+than expected margin.
+
+That is the answer to the question this file has carried for a week: *why do
+large local margins convert into almost no win rate?* Because we have been
+steering on mu alone while our sigma is enormous -- ladder banks $10k-$121k
+against a tight $76-93k locally. Raising mu by $12k does little to Phi(mu/sigma)
+when sigma is ~$40k; halving sigma does more. **Cutting the left tail is
+mathematically equivalent to a large margin gain, and we have been treating it as
+a lesser, separate problem.**
+
+Practical rule: report mu, sigma and Phi(mu/sigma) together, and never accept a
+change that raises mu while widening sigma more.
+
+### What we changed, and the trap we walked into
+
+`price_at` in `main.py` now mirrors 1.32.7 exactly (0 mismatches over the whole
+curve; `tests/test_agent.py` pins it). It was wrong for four days, which matters
+because it decides what we sell.
+
+Planting is deliberately **still valued on the pre-1.32.7 curve**, via
+`planting_price`. Letting the new prices drive the crop mix measured
+**-$34,044 a game over six seeds**: the agent front-loads carrot, the livestock
+build slips behind it, and ten pastures finish empty. Note the first mitigation
+tried -- clamping the valuation at the hinge knee -- changed *nothing*, because
+the deficits reached in valuation sit below T=450 and the damage comes from
+carrot's target going 0.20 -> 1.00, which lifts the whole curve rather than just
+the runaway tail. Measure before believing a fix.
+
+## Animals bought, carried, and never delivered -- fixed, +$25k
+
+The walking measurement said the lever was routing. It was not, and the way that
+came apart is worth keeping.
+
+**Pricing the walk higher is strictly worse.** Sweeping the parameters that exist
+for exactly this, over 16 seeds against v21 and v22:
+
+| variant | search score | margin | holdout |
+| --- | --- | --- | --- |
+| control | 0.641 | +$4,965 | 0.656 |
+| `action_cost_scale` 0.75 | 0.078 | -$21,534 | 0.109 |
+| `action_cost_scale` 1.0 | 0.016 | -$26,405 | 0.000 |
+| `action_cost_floor` 16 | 0.008 | -$28,249 | 0.000 |
+| `action_cost_floor` 24 | 0.359 | -$4,402 | 0.375 |
+
+So walking was never mispriced. Splitting the work by tile type found the real
+shape: animal tiles carry four jobs a day, so a unit parked on a herd works
+without moving. THUNDER THUNDER does **949 animal jobs at 0.39 tiles each**; we
+did **386 at 1.53**. Our herd is *tighter* than theirs (spread 1.12 against
+2.08) -- it was simply five animals against fourteen. The walking was downstream
+of the herd.
+
+**The herd was small because animals were bought and never delivered.** Tracing
+every purchase: seed 2 bought 17, placed 9, and finished with ten animals *in
+units' hands* against ten empty pens. Two bugs in series:
+
+1. The PLACE job required stock in the **shed**. PICKUP empties the shed, so the
+   job vanished on the very next turn and stranded the carrier.
+2. Animals are not in `PRODUCTS`, so neither the carry-limit drop nor the
+   filler-assignment guard noticed a unit holding one. It wandered off doing
+   filler work with a cow in hand, for the rest of the game.
+
+Fixed by counting carried animals when building the job, and by committing a
+unit that holds one to the nearest matching pen. Every animal now lands: seed 2
+goes from 9 placed to 15, on the board from day 16.
+
+| | before | after |
+| --- | --- | --- |
+| score vs v21, v22 (24 seeds) | 0.641 | **0.990** search / **1.000** held out |
+| margin | +$4,965 | **+$24,544** / **+$28,696** |
+| jobs done per game | 1,936 | 2,386 |
+| working share of actions | 27.5% | 33.6% |
+| walk per job | 2.02 | 1.66 |
+| idle share | 16.9% | 10.6% |
+| `validate.py` stranded livestock | 4 cows + 7 sheep | **none** |
+
+Dispersion, on the discipline above: mu +$27,721 sigma $14,512 (mu/sigma 1.91,
+Phi 0.972) against v21; mu +$21,367 sigma $12,653 (1.69, Phi 0.954) against v22.
+Worst local game banks $58,243, where the ladder left tail used to reach $10k.
+Phi tracks the observed win rate closely, so the model is calibrated here.
+
+**Read the 0.99 with trap 5 in mind.** The local pool is saturated again; this
+says the change is not a regression and that the left tail moved, not that it is
+worth 30 rating points. The ladder decides.
+
+Still short of the top agents: 33.6% working against THUNDER's 41.2%, and 1.66
+walk per job against 1.02. The remaining gap is now mostly crop-side routing.
+
+## Items 1 and 2 from the tracking report: one was already done, one works split
+
+Worked 2026-08-19 after the top-20 profile put "harvest more" and "fertilise" at
+the top of the list. Both answers were different from the prediction.
+
+### Harvest: the count gap is cadence, not lost value
+
+The report read HARVEST 271 against the consensus 399 as a third of our crop
+going unpicked. It is not. Measured directly:
+
+- **Animal production lost to the `max_held` cap: zero.** 334 productions over
+  three games, none capped, no animal-day spent at capacity. Fewer, larger
+  harvests are *cheaper* than theirs, not worse.
+- **Crop left in the field: $95**, and $849 in units' hands -- already closed by
+  the liquidation change earlier today.
+
+So >95% of producible units are collected and the remaining count difference is
+harvest cadence. There is no third of a farm going missing.
+
+**One real defect did turn up while checking, and it still does not pay.** Wheat
+peaked at 3 units of a possible 4, never once 4, over 116 tiles: the harvest
+branch `continue`d past the watering block, so the last window watering (wheat's
+window is ages 2-4 and `harvest_age` is 4) was never offered. Fixing it works --
+mean peak 2.6 -> 3.2, 62 of 112 tiles reaching 4 -- and **loses $1,367 held out**.
+One extra action per tile buys one unit of the cheapest product on the board, and
+that action was already earning more elsewhere. `water_before_harvest` stays off,
+switch retained.
+
+### Fertiliser: the old sweep could not test the thing that works
+
+`fertilize_min_edge` was set to 1e9 after a sweep that found "less is always
+better", with a good mechanism: an ongoing crop only banks the bonus on a day it
+is also watered, so fertilising demands *extra* waterings and crowds out the ones
+already earning -- 58 FERTILIZE cost 122 waterings and strawberry sold fell.
+
+That mechanism does not exist for a one-time crop. Wheat's three window waterings
+each add 2 instead of 1 **on the same turns**; nothing extra is asked for. The
+old sweep could only turn both on together, so it never tested this.
+
+Split into `fertilize_once_edge`, applied to non-ongoing crops only:
+
+| | search | holdout |
+| --- | --- | --- |
+| off (1e9) | 0.792, +$1,986 | 0.833, +$1,806 |
+| edge 0.25 | 0.833, +$2,697 | 0.875, +$2,365 |
+| **edge 0.5** | **0.833, +$2,661** | **0.875, +$2,407** |
+| edge 1.0 | 0.833, +$2,620 | 0.875, +$2,314 |
+| edge 2.0 | 0.833, +$2,535 | 0.875, +$2,427 |
+
+The optimum is flat from 0.25 to 2.0, which is the reassuring shape -- this is
+not a value fitted to the seeds. Taken at 0.5.
+
+Note the two are **substitutes, not complements**: with fertiliser on, adding
+`water_before_harvest` costs a further $1,248. Both buy the same missing wheat
+units, and fertiliser buys them without spending an action per tile.
+
+**The headroom is real, and the obvious way to reach it is ruinous.** We issue 17
+FERTILIZE a game against the consensus 70 and tetsuya's 132, already worth ~$140
+an action. Instrumenting the job showed the constraint is not price and not the
+edge: the job is *offered* 1,471 times but on only **88 turns of 719**, because
+**fertilizer stock sits at zero on 326 turns**. We collect ~257 a game and sell
+essentially all of it.
+
+So hold some back -- and it collapses. Against v24, held out:
+
+| `fertilizer_reserve` | score | margin |
+| --- | --- | --- |
+| 0 | 0.875 | +$2,407 |
+| 8 | 0.208 | **-$3,951** |
+| 16 | 0.000 | **-$29,050** |
+
+Fertilizer is a real revenue line, and the shed is capacity 100: holding it both
+forgoes the sale and crowds out produce, which then overflows and is discarded.
+Whatever lets the top agents fertilise 70-132 times a game, **it is not
+hoarding** -- more likely they collect on a different schedule, or apply it
+straight from the animal tile without a shed round trip. Left at 0; the parameter
+stays so the result is not rediscovered.
+
+### Candidate standing, 50 seeds a side against the benchmark pair
+
+**0.840 search / 0.870 held out, +$4,249 / +$4,248** (v24 +$2,685, v23 +$5,811),
+over 200 games a seed set. Gate clean: 104 tests, ruff, validator zero issues and
+no stranded livestock, every game DONE, shed empty, p95 1.00ms.
+
+## The route planner: built, measured, and not shipped
+
+The second outside model's recommendation, and the best-argued suggestion we have
+had: stop matching workers to jobs and plan a persistent ordered route per unit
+over the rest of the day, repaired each turn rather than rebuilt.
+
+Its case is strong. Our own exact-matching result -- +$12,421 of assigned job
+value, $25,078 *worse* in the bank -- says the per-turn objective is the defect.
+It also explains why the same-tile bonus failed where routing should not: a bonus
+claims "jobs here are intrinsically better", while a route says "their marginal
+travel is zero but the work action still consumes scarce capacity". Those are
+different claims and the second is right.
+
+**Built as `plan_routes`, behind `route_planner`. Now at -$17,830 held out
+against v25, down from -$32,675, still a 0.000 win rate, still off.**
+
+Two defects found and fixed, each worth roughly $15k, and both were in the
+*selection* rule rather than in the routing:
+
+1. **Unrouted units were abandoned.** A route only accepts a job whose value
+   clears the travel to reach it, so a unit standing far from anything worthwhile
+   got no route -- **42% of unit-turns**. Those units fell through to the
+   nearest-job filler, which ignores value entirely. They now fall back to the
+   greedy pairs instead.
+2. **Insertions were ranked on absolute gain, not rate.** The shipped ordering is
+   `rate`: net value divided by the turns the assignment *occupies*, because a
+   $400 job four tiles away is worth less than a $340 job next door that frees
+   the unit four turns sooner. The planner threw that away and ranked on raw
+   gain. Ranking insertions by `gain / delta` recovered about half the loss.
+
+The second is the more instructive: the planner never had a routing problem, it
+had a scoring problem, and the scoring rule it discarded was the one already
+doing the work. Any future attempt should keep `rate` as the insertion criterion
+from the start.
+
+**A route-length sweep also refutes the obvious next hypothesis.** Tails reserve
+jobs exclusively, which could starve other units of work they could do now -- but
+`route_max_len` 1, which has no tails at all, measures -$39,304. The loss is not
+in the tails. It is in the head selection, which is why the two fixes above are
+worth what they are and why length barely matters (4, 8 and 12 all land within
+$2.5k of each other).
+
+What works: routes persist across turns via `job_key` and are repaired rather
+than rebuilt; regret insertion places the job that fits in fewest routes first;
+positions are re-costed when an insertion invalidates them; routes are genuinely
+multi-stop early in the day (mean length 6.67 at hour 0, decaying with the budget
+to 0.56 by hour 21, which is correct). An earlier build got travel per job to
+**1.78**, below the greedy baseline -- the only time anything has moved that
+number the right way, though the current rate-ranked build sits at 1.93.
+
+What is missing, and it is the half that pays:
+
+1. **No rest-of-day forecast.** Routes are planned over *currently visible* jobs
+   only. The design calls for predicting the day's arrivals -- watering days and
+   harvest days are deterministic functions of planting day, animal production is
+   a fixed interval -- and planning over `H = 24 - turn_in_day`. Without it the
+   planner takes on the commitment cost of a route and gets none of the lookahead
+   that is supposed to pay for it.
+2. **No local search.** No move-between-routes, swap, reorder, or
+   destroy-and-rebuild. The design is explicit that this is where the 1000 ms
+   budget should go; we use about 1 ms.
+
+One thing the build did establish. The first version starved five animals a game,
+because a route can rank a FEED fairly on value and still push it past the day's
+budget. Value does not express a deadline. Marking the jobs that are lost outright
+if the day ends -- FEED, and WATER when the plant would die -- and placing them
+before anything chosen on value recovered the herd (7 -> 11 animals) and took
+travel per job below baseline. **That is the time-window half of TOPTW, and any
+future attempt needs it from the start.**
+
+The remaining money gap is not located. Action mix and travel are now close to
+baseline while the bank is roughly halved, which points at something other than
+routing quality.
+
+`route_planner: False` reproduces v25 exactly (+$0 over 40 games), so nothing is
+at risk from the code being present.
+
+## The continuation term: no effect on margin, double the variance
+
+The most promising suggestion from the outside model, and our own standing
+hypothesis besides: `value - dist * C` prices the walk *to* a job and nothing
+about where the worker is left standing, so add a term for the work available
+around the destination.
+
+Implemented as `continuation_weight` and `continuation_radius`: for each job
+tile, sum the value of other jobs within the radius discounted by `1/(1+d)`,
+computed once per turn rather than per pair, and add `weight x (that - own
+value)` to the pair score. Scale measured first, because it matters -- the
+continuation value has a median of **1,126** against a median job value of
+**84**, so a weight near 0.075 makes it worth a whole median job and 0.005 makes
+it worth half a tile of walking.
+
+Sweeping at 20 seeds gave one apparently good cell, 0.015 at +$1,896 held out --
+**and -$2,176 on its own search set**. Search and holdout disagreeing that
+sharply is a noise signature, so it was re-run on three seed sets it had never
+been measured on, 60 games each:
+
+| seeds | mu | win rate | sigma (off -> on) | Phi |
+| --- | --- | --- | --- | --- |
+| 3000-3029 | +$514 | 0.567 | 3,597 -> **6,167** | 0.533 |
+| 4000-4029 | +$806 | 0.550 | 2,505 -> **6,379** | 0.550 |
+| 5000-5029 | -$902 | 0.433 | 3,530 -> **4,998** | 0.428 |
+
+Mean over 180 games: **+$139**, with the sign flipping. Margin is unchanged
+within noise; **sigma nearly doubles in every set**. Under Pr[win] = Phi(mu/sigma)
+that is strictly worse, and it would have looked like a win to anyone reading
+only the first two rows.
+
+**A pattern is now visible across three separate experiments.** Under-pricing
+watering, and now adding continuation value, both leave the mean roughly alone or
+raise it while inflating sigma. Changes that push the agent to chase aggregate
+value make it more erratic rather than better. Whatever closes the walking gap
+will have to hold sigma down while doing it -- which is a much sharper
+requirement than "walk less", and worth putting to the next model.
+
+## An outside model on the walking gap: right frame, wrong mechanism
+
+`docs/walking-gap-problem.md` was put to another model. Its formalisation is
+useful and its causal explanation is refuted by measurement -- both worth keeping.
+
+**Correct and worth adopting.** The problem is a dynamic **Team Orienteering
+Problem**: unlike a VRP it does not require visiting every node, it maximises
+collected score inside a time budget where servicing everything is impossible.
+Strongly NP-hard. That is the right literature to read, and we did not have a
+name for it before.
+
+**Refuted: "exact assignment loses to greedy because it thrashes."** The claim is
+that re-solving exactly each turn pivots workers off their trajectories and
+wastes travel, where greedy accidentally creates inertia. Measured over three
+seeds, forcing each mode:
+
+| mode | move % | work % | U-turns | as % of moves |
+| --- | --- | --- | --- | --- |
+| greedy | 61.6 | 28.3 | 102 | 2.1% |
+| **optimal** | 59.5 | 27.9 | **86** | **1.8%** |
+| nearest | 47.2 | 32.6 | 40 | 1.1% |
+
+**Optimal reverses less often than greedy, not more**, and reversals are 1-2% of
+all moves either way -- far too small to explain a $25,078 swing. This matches
+the older measurement in the optimal-assignment section (U-turns 83 against 75).
+The mechanism is real in principle and absent here.
+
+Their inertia observation is nonetheless true of our code: greedy sorts pairs by
+`value - dist * C`, so a worker closing on a target sees that target's score rise
+with it. That is a genuine stabiliser exact matching lacks. It is just not what
+is costing the money.
+
+**Their ceiling estimate is probably too low.** They reason that walking 5 tiles
+to clear a 4-job animal tile gives 4/(5+4) = 44%, so 45-50% is the cap. But
+animal tiles sit ~1 tile apart in a herd: 5 + 4 + 1 + 4 gives 8 work in 14
+actions, **57%**. If sustained clustering is reachable the ceiling is well above
+the 41-43% the best agents manage, which makes the gap more interesting rather
+than less.
+
+**Untested and worth trying**, in their order of promise: a continuation term
+`+ E[V(p_j)]` for future job density around the destination (this matches our own
+standing hypothesis -- the score prices the walk *to* a job and nothing about
+where the worker is left); per-worker territories; and their closing suggestion,
+pre-computed multi-stop tours over the predictable animal clusters at dawn.
+
+### A side finding, and a caution about our own method
+
+Testing their claim meant forcing assignment modes, which prompted a proper sweep
+of `assignment_plan` (one letter per quadrant owned). Against v25 over 24 seeds a
+side:
+
+| plan | search | holdout |
+| --- | --- | --- |
+| `grrn` (default) | 0.500, +$0 | 0.500, +$0 |
+| **`rrrr`** | 0.521, +$2,219 | **0.604, +$948** |
+| `nnnn` | 0.354, -$3,480 | 0.292, -$1,696 |
+| `grnn` | 0.271, -$3,213 | 0.375, -$2,906 |
+| `gggg` | 0.000, -$13,507 | 0.000, -$13,566 |
+
+`rrrr` is a small positive lead worth confirming at higher seeds. Uniform greedy
+is catastrophic, which is a reminder that the shipped plan is already doing real
+work.
+
+**The caution is about the three-seed run above.** It said `nnnn` was the best
+mode by $9k. At 24 seeds it is -$1,696. Three seeds decided nothing and briefly
+convinced me otherwise; the `MIN_SEEDS` floor added this morning exists for
+exactly this, and the churn table above is kept only because U-turn *ratios* are
+structural rather than noisy.
+
+## Perturbing a job price tests it; reading it only reports a belief
+
+The value table below shows what the agent *believes* each job is worth. To test
+whether the belief is right, scale one job's price and watch the bank: a
+correctly-priced job loses money when moved either way. Two diagnostic knobs
+exist for this, `fertilize_value_scale` and `water_value_scale`, both 1.0.
+
+**FERTILIZE is priced irrelevantly, not wrongly.** Over an eightfold range the
+result does not move: held out against v24, x0.5 gives +$2,477, x1 +$2,483, x2
++$2,310, x4 +$2,732 -- all inside noise. Even at four times its price it is still
+far below watering, so the ranking never changes. That settles the earlier
+question: we fertilise 17 times because the job is genuinely low-value, and no
+re-pricing reaches it.
+
+**WATER is where it gets interesting, and it is a dispersion result.** Over 40
+held-out games against v24:
+
+| variant | win rate | mu | sigma | mu/sigma | Phi | worst bank |
+| --- | --- | --- | --- | --- | --- | --- |
+| **baseline** | **0.900** | +$2,483 | **$2,954** | **0.84** | **0.800** | **$53,071** |
+| water x0.7 | 0.700 | **+$5,950** | $8,482 | 0.70 | 0.758 | $36,701 |
+| water x1.4 | 0.775 | +$3,404 | $6,206 | 0.55 | 0.708 | $51,859 |
+
+Under-pricing watering **more than doubles the average margin** -- +$5,950
+against +$2,483 -- and *loses* two hundred points of win rate, because sigma
+nearly triples and the worst game drops $16k. Steering on margin alone would
+have taken it.
+
+This is the concrete case for the Pr[win] = Phi(mu/sigma) objective, and it is
+the first time the two metrics have pointed in opposite directions on this
+agent. **Report mu, sigma and the win rate together; never accept a margin gain
+without checking sigma.** `lab/ab.py` reports score and margin side by side for
+exactly this reason.
+
+Watering is also the agent's variance control: it is the job that prevents total
+loss on a tile, so pricing it high trades expected margin for reliability. That
+is the right trade when the objective is wins.
+
+## Why FERTILIZE fires 17 times, and why that is close to correct
+
+Chased on Meet's suggestion that free daily fertilizer plus idle units should
+mean far more of it. Four engine facts first, because three of them settle parts
+of the question outright:
+
+- **There is no per-unit inventory cap.** `_inv_add` just increments. A unit can
+  carry any amount, and each unit has its own dict, so items do stack per hand.
+- **Nothing survives the night in hand.** `_drop_inventories_to_shed` empties
+  every inventory into the shed at day end and **discards the overflow**, then
+  `inventories` resets. Stockpiling in hand across days is impossible.
+- **Hands do not persist either** -- `farm["hands"] = []` nightly -- so a hand
+  hired tomorrow is a new unit with nothing in it.
+- **Collection is not the leak.** We collect 256-280 a game against 289-302 ever
+  available.
+
+And the idle window is much smaller than it looks. Idle unit-turns where
+fertilizer is waiting *and* a fertilisable crop exists: **43-47 a game**, not
+hundreds, because `fertilize_gain > 0` needs a one-time crop inside a narrow age
+window.
+
+**The real answer is in the job values.** Median value of each job as offered,
+one game:
+
+| job | offered | median $ | p90 $ |
+| --- | --- | --- | --- |
+| WATER | 7,407 | **275** | 803 |
+| FEED | 3,936 | 158 | 515 |
+| HARVEST | 2,786 | 99 | 1,100 |
+| **FERTILIZE** | 1,437 | **84** | 95 |
+| CARE | 3,825 | 74 | 173 |
+| PLANT | 2,305 | 52 | 661 |
+
+FERTILIZE is offered 1,437 times and is worth a median $84 against watering's
+$275, with a p90 of only $95 -- it is never a high-value job. **The greedy is
+ranking it correctly.** We fertilise 17 times because that is how often it is the
+best thing a unit can do; forcing more displaces watering worth three times as
+much. The 17 are already worth ~$140 an action, which is the return on taking
+only the good ones.
+
+That also explains tetsuya's 132: they water **853** against the consensus 909.
+A farm with fewer waterable tiles lets fertilising win more often. It is a
+different farm shape, not a scheduling trick.
+
+### What was tried on this line
+
+| change | held out vs v24 |
+| --- | --- |
+| baseline | +$2,407 |
+| **source fertilizer from the herd, not the shed** | **+$2,534** (kept) |
+| `work_in_passing` on | +$1,986 |
+| `fertilizer_reserve` 8 | -$3,951 |
+| `water_before_harvest` on | +$1,040 |
+
+Only the herd-sourcing helps, and only slightly -- it takes the cheaper of the
+shed route and the nearest animal, so it is never worse by construction, and
+FERTILIZE count barely moves (17 -> 18). The shed round trip was not the
+constraint either.
+
+**Five scheduling heuristics have now been tried on this agent and four lost.**
+The greedy with correctly-priced jobs is a stronger baseline than it looks, which
+is the main argument against building a per-unit route planner: it would have to
+beat a ranking that the evidence says is already right.
+
+## The top 20 is one agent, and the gap is execution not strategy
+
+Pulled 2026-08-19 with `lab/scout.py`, profiled with `lab/profile_top.py`. The
+route is not obvious and is worth writing down: `ListEpisodes` needs a submission
+id, the leaderboard only gives team ids, and
+`SubmissionService/ListTeamPublicSubmissions` bridges them -- but only with a
+browser session (cookie + `x-xsrf-token`), not the API token.
+
+**Fifteen of the twenty-two teams profiled are behaviourally identical**, matching
+within 2% on every action count: water 909, harvest 399, plant 184, fertilize 70,
+12 hands, 14 animals, walk 1.32 tiles a job. That is a shared public notebook, not
+fifteen strategies. Only three profiles are meaningfully distinct.
+
+So the pool needs **three opponents, not twenty**:
+
+| | consensus (15 teams) | tetsuya (rank 1) | ReCurSiON (rank 3) | **ours (v25)** |
+| --- | --- | --- | --- | --- |
+| work % of actions | 39.6 | 39.4 | **42.6** | **30.7** |
+| walk per job | 1.32 | 1.05 | **1.02** | **1.87** |
+| walk per animal job | 0.77 | 0.43 | **0.35** | **1.48** |
+| hands / animals | 12 / 14 | 12 / 15 | 14 / 13 | 12 / 12 |
+| WATER | 909 | 853 | 1010 | 852 |
+| HARVEST | 399 | 413 | 390 | **271** |
+| PLANT | 184 | 198 | 199 | 186 |
+| FERTILIZE | 70 | **132** | 72 | **0** |
+| FEED / CARE | 321 / 318 | 349 / 349 | 290 / 285 | 269 / 265 |
+| DIG | 31 | 33 | 41 | **57** |
+
+**The crop mix is no longer the gap.** We plant essentially their farm: wheat 121
+against 125, strawberry 46 against 42, melon 19 against 12, carrot 0 against 5.
+The v23-v25 work closed what the 08-11 replay study identified. What is left is
+entirely execution:
+
+1. **HARVEST 271 against 399.** We grow the same farm and pick a third less of it.
+2. **FERTILIZE 0 against 70**, and tetsuya -- the rank 1 agent -- runs **132**.
+   The single clearest thing the best agent does that nobody else does.
+3. **walk per job 1.87 against 1.32**, and 1.48 against 0.77 on animal tiles.
+4. **DIG 57 against 31.** We spend 26 extra actions clearing weeds, which is a
+   symptom: tiles die because they were not harvested in time.
+
+Note what is *not* different: hands, quadrants, water, plant counts are all level.
+This is not a strategy deficit any more, it is throughput.
+
+### What to build, given the monoculture
+
+Three opponents, in order of value: the consensus notebook (it is 15 of the top
+20, so it is what the ladder actually pairs us against), tetsuya's
+fertilizer-heavy variant, and ReCurSiON's 14-hand high-water variant. Anything
+beyond those three is re-implementing the same agent.
+
+## The last day was still farming, not liquidating
+
+Spotted by Meet in a v24 replay against Rakhansyah: on days 29 and 30 the farm is
+still watering wheat that cannot reach yield before the season ends. Correct, and
+the mechanism is worse than the symptom.
+
+Two separate faults, both provable from the engine:
+
+1. **HARVEST was withheld until max yield.** The gate was `age >= harvest_age or
+   held >= max_yield`, with `endgame` as the only override -- and `endgame` is
+   `step >= EPISODE_STEPS - 2`, the last **two turns of 720**. Wheat planted
+   around day 25 therefore sat ripe and unpicked through the end of the game.
+2. **Watering on the final day mostly cannot pay.** A plant lost to
+   `consecutive_unwatered` dies in `_daily_refresh_plants`, which runs *after*
+   the last sale, so `must_water` protects nothing. An ongoing crop's yield is
+   credited in that same nightly refresh, so watering strawberry or tomato on
+   day 29 is worth exactly zero. Only a non-ongoing crop inside its window
+   converts the turn into units that can still be picked, because that bonus
+   lands immediately.
+
+Measured before the fix, over three seeds: **$5,445 of ripe crop standing in the
+field and $1,451 in units' hands** at the final step, ~$6,900 a game.
+
+Fixed with a `liquidate_days` window (default 1). Inside it, harvest anything
+ripe regardless of max yield, drop `must_water` entirely, and drop watering of
+ongoing crops. Half a fix moved the loss rather than removing it -- the field
+emptied to $2 and units' hands *rose* to $3,372 -- so it needs the second half:
+
+**Last train home.** On the final day a loaded unit keeps working only while it
+can still get back. Once `distance to shed + 2 >= hours_left` it banks, because
+anything in hand at step 720 is worth nothing.
+
+| | before | after |
+| --- | --- | --- |
+| ripe left in field | $5,445 | $95 |
+| carried at final step | $1,451 | $849 |
+
+Against v24 and v23 over 24 seeds a side: **0.812 search / 0.844 held out,
++$3,234 / +$3,745** (v24 +$1,806, v23 +$5,684). `liquidate_days` 2 ties it
+(0.833, +$3,849) and 3 is worse (0.812, +$3,044), so the window stays at 1.
+
+## How cattle and crops actually compete -- and why relaxing it does nothing
+
+Asked directly, and the answer is that they do not compete on value anywhere.
+Three mechanisms split the farm, none of which weighs an animal against a crop:
+
+1. **Position.** Empty tiles are sorted by distance to the shed; the nearest
+   `n_struct` become pens and everything further out becomes crops. Livestock
+   gets the inner ring by geometry, not by being worth more.
+2. **Asymmetric pricing.** `crop_value` is a real model -- profit per tile-day
+   *and* per action, charged against our own in-flight supply, discounted for
+   cycle length and cash starvation. A pen is worth
+   `max(60, animal_profit * build_fraction)`, and `build_fraction` is **0.1**.
+   The pen competes for a build action at a tenth of the animal's value.
+3. **The herd target never binds.** `target_cows` 14 + `target_sheep` 12 = 26,
+   and we place 11. Counting what actually stopped each purchase over a game:
+
+| blocker | share of opportunities |
+| --- | --- |
+| no spare pen | 36.3% |
+| past `animal_last_day` (20) | 33.3% |
+| cannot afford after reserves | 27.0% |
+| bought | 3.5% |
+| **target reached** | **never** |
+
+**But relaxing the binding constraint does not pay**, which is the useful half.
+Against v24 over 20 seeds a side:
+
+| variant | search | holdout |
+| --- | --- | --- |
+| `build_fraction` 0.3 | +$745 (0.625) | +$612 (0.525) |
+| `build_fraction` 0.6 | -$400 | -$442 |
+| `animal_last_day` 24 | -$21 | -$241 |
+| both | +$726 | +$362 (0.475) |
+
+Nothing clears noise: the best holdout score is 0.525 on a win rate whose
+interval is +/-0.19, and +$612 is 0.7% of a bank. So "no spare pen" is a blocker
+that costs nothing to be blocked by, which agrees with the measured note already
+in `livestock_plan` -- an empty pen is an option, and forcing more of them cost
+$34,382 at `build_ahead_cover` 1.5.
+
+**The reading.** The herd is limited by cash and by the day-20 cutoff far more
+than by pens, and the 10% pen price is closer to right than it looks. Do not
+re-tune these three constants; if livestock is to grow further it needs the
+*cash* path opened earlier, not the pen price raised.
+
+## Crop-side routing: two negative results and one small win
+
+Continuing after v23. The remaining action-budget gap is crop-side -- HARVEST at
+1.95 tiles a job against THUNDER's 0.91, PLANT 1.13 against 0.64, while WATER is
+already level (1.59 against 1.55). Two attempts failed and are recorded so they
+are not retried.
+
+**Chaining same-tile jobs does not pay.** THUNDER clears an animal tile in one
+visit -- CARE 0.16 tiles a job, COLLECT_FERTILIZER 0.14 -- where we visited the
+same animal three times (1.47 and 1.14). Bonusing distance-0 jobs by a multiple
+of `action_cost` moves that metric convincingly (CARE 1.47 -> 0.73 at a bonus of
+30) and **still loses money**: -$5,445 against v23 at a bonus of 2.0, and the
+bank falls monotonically as the bonus rises. Total walk per job barely moves
+(1.55 -> 1.48) because travel is conserved -- chaining only decides which job
+gets the free slot, and it spends it on the cheap one. `same_tile_bonus` stays in
+`DEFAULTS` at 0.0 so the result is not rediscovered.
+
+**A caution about the instrument.** The first sweep of this showed identical
+numbers at every bonus value, because `agent` captures its params at import and
+mutating `DEFAULTS` afterwards changes nothing. Sweep through `make_agent`, the
+way `lab/ab.py` does, or measure a constant.
+
+**Crew size had gone stale, and that is the win.** `max_hands` 11 was optimal on
+a five-animal farm. v23 puts fifteen animals on the board, each carrying four
+jobs a day, and the optimum moved to **13**:
+
+| max_hands | vs v23, 20 seeds a side | 32 seeds a side |
+| --- | --- | --- |
+| 11 (v23) | +$0 | +$0 |
+| **13** | **+$1,849 / +$3,209 held out** | **+$1,181 / +$2,532 held out** |
+| 15 | -$3,339 | |
+| 17 | -$6,389 | |
+
+Hands cost `fib(n)` per day, so the 14th and 15th cost $610 and $987 each on
+their own -- which is why the curve turns over so sharply. Searching around 13
+found nothing better: `hire_value_frac` 2.2 ties it, 1.2 and `move_factor` 3.0
+and 3.9 are all worse.
+
+Shipped as v24. It is a modest gain -- ~+$2-3k against v23, against v23's own
++$28.7k over v22 -- and worth a slot mainly because it displaces v22 from the
+active pair.
+
+**The general lesson, and it will recur.** A parameter fitted before a structural
+fix encodes the farm that existed then. v23 tripled the herd; the first thing to
+re-check after any change that big is every parameter that was tuned against
+throughput. This is trap 4 from *Where things stand* in a new costume.
+
+## The action budget is the binding constraint (`lab/effort.py`)
+
+Measured 2026-08-19 against replay 91537598, both seats ~3,200. Classify every
+unit-action in a game as movement, idle, or work:
+
+| | actions | moving | idle | **working** | tiles walked per job |
+| --- | --- | --- | --- | --- | --- |
+| THUNDER THUNDER | 6,996 | 42.3% | 16.5% | **41.2%** | **1.02** |
+| HealthStone | 6,873 | 52.8% | 9.4% | 37.8% | 1.39 |
+| ours (v22) | 7,042 | 55.6% | 16.9% | **27.5%** | **2.02** |
+| ours (v21) | 6,979 | 56.2% | 16.4% | 27.4% | 2.05 |
+
+We take the same number of actions and convert **1,936** into work against
+THUNDER's **2,884** -- 49% more work from an identical budget. The two rivals
+fail differently, so the levers are independent: THUNDER routes well, HealthStone
+routes no better than us but almost never idles a unit. Both together would be
+~48% working, about **3,400 productive actions, +76% on ours**.
+
+This subsumes several things previously filed as separate problems. We harvest
+203 times to their 389, feed 114 to their 312, and issue **zero** FERTILIZE
+actions to their 70 -- not because those gates are mistuned but because there was
+never any labour left. Fix the walking before re-tuning anything downstream of it.
+
+## The market has depth, and it differs per product by 60x (`lab/depth.py`)
+
+Selling adds to a shared inventory and walks the price down `above_func`. That
+shape, not the base price, decides whether a product can absorb volume:
+
+| shape | products | price after selling 400 | avg $/unit |
+| --- | --- | --- | --- |
+| `log` | wheat, egg | **80% of base** | 21 / 41 |
+| `sqrt` | carrot, tomato | 34% / 15% | 20 / 26 |
+| `linear` | strawberry, milk | floor by ~100 units | 10 / 16 |
+| `sq` | wool, melon | floor by ~60 units | 21 / 67 |
+
+Two consequences we are currently on the wrong side of:
+
+1. **We match the top agents only where the market cannot absorb volume.** Sell
+   requests: melon 112 against their 108 (parity, and melon is `sq`); wheat 215
+   against 433, milk 119 against 250, wool 0 against 132. We have tuned hardest
+   against a ceiling and left the ceiling-free products at half.
+2. **Pricing a tile at the current price over-plants thin markets**, because the
+   current price is the first unit's price. Melon's first 100 units earn $21,721;
+   the next 300 earn $5,006 total. Our agent holds 21 melon tiles and unloads them
+   late, walking its own price from $277 on day 21 to $4 by day 27.
+
+Wheat is the opposite case and is chronically under-supplied by *both* farms: in
+that replay it finished 436 units below equilibrium with the price risen 25 ->
+46, while the two best agents on the board sold 431 and 433 into it.
 
 ## Audit: which gates decide on one factor
 
@@ -451,7 +1231,11 @@ honest, and it is the one that was being skipped.
    reads. Hand-picking a benchmark pair goes stale the moment a newer agent
    climbs past it, and then every measurement is taken against something we have
    already beaten.
-2. **Score the candidate against them**, at 40 seeds or more.
+2. **Score the candidate against them**, at 40 seeds or more. `lab/ab.py` and
+   `lab/postmortem.py` enforce a **20-seed floor** (`lab.ab.MIN_SEEDS`) and raise
+   anything lower, because below it the win-rate interval is wider than any
+   improvement we have shipped. Twenty is the floor for a quick read; 40+ for
+   anything heading to the ladder. `--allow-small` overrides it for debugging.
    `python lab/ab.py --seeds 40 --opponent benchmarks --variant 'cand:{}'`
    Then against the recent field, which is the harder bar and the default:
    `python lab/ab.py --seeds 40 --variant 'cand:{}'`
@@ -476,6 +1260,17 @@ deliberately held one melon economy and one shop-led. `MELON_FOIL`
 (`agents/baseline_j.py`) therefore stays in the wider `POOL` permanently even
 when its rating drops it out of the benchmark pair -- it is the only opponent
 left that plays a genuinely different game.
+
+**And ranking by rating compares across eras, which is not sound while the field
+is inflating.** A rating is a mark against the opponents an agent actually
+played, so a submission that stopped playing on 08-15 keeps a number earned
+against a 746 field, while one still playing is marked to a 778 field today. The
+`--min-games` guard makes this worse rather than better: it favours agents with
+long histories, which are the ones whose histories are stalest. Until this is
+fixed, read `lab/benchmarks.py` output alongside each agent's *mean opponent
+rating* (in the Live submissions table) and discount an old high rating
+accordingly. The honest comparison is a direct local head-to-head, which is what
+`lab/ab.py --opponent recent` gives.
 
 ## Layer 0: measure phases, not games (`lab/phases.py`)
 
@@ -692,6 +1487,29 @@ Do not restart this from scratch. The mechanism is sound and measured; what it
 lacks is a reason to believe another tuning round closes a $3k gap that four
 hand-tuned weights and a joint search did not.
 
+### Carried onto the v25 line, and re-verified neutral (2026-08-22)
+
+The ledger was measured on the pre-v23 agent under engine 1.32.6, and `main`
+moved three submissions and one engine version past it in the meantime. It has
+now been merged forward onto v25.
+
+The merge point is `crop_profit` / `crop_value`, where the ledger branch and
+`planting_price` (the 1.32.7 legacy-scarcity split) both landed. The non-ledger
+path takes `planting_price`; the ledger path keeps `ledger_crop_revenue`, which
+carries its own dated model and must not be re-priced through the season-total
+curve.
+
+With `ledger_pricing` off, the merged agent is **identical to v25**: 96 paired
+games against `agents/baseline_r.py` return margin **+$0** and rate 0.500, so
+nothing is at risk from the code being present -- the same guarantee
+`route_planner: False` gives. Against the live benchmark pair it reads 0.833
+search / 0.875 holdout, +$4,014.
+
+The measured verdict is unchanged and is **not** re-opened by the merge: the
+numbers in the tables above were taken on the pre-v23 agent under 1.32.6, so
+they say the ledger lost *that* race. Re-running them against v25 would cost a
+full joint search and is not worth it without a new mechanism to test.
+
 ## Settled, so nobody re-litigates them
 
 - **The melon opening is correct.** It looks wrong in a replay -- 23 melon
@@ -711,9 +1529,31 @@ hand-tuned weights and a joint search did not.
 
 ## Open leads
 
-- **Wheat.** The top agents sell 433 a game; we sell 28, and the market still
-  ends 1,158 units below equilibrium with the price high. The demand forecast
-  moved strawberry but not wheat. This is the largest single line item left.
+- **Carrot, tomato and egg after the 1.32.7 reprice.** Nobody on the ladder grows
+  any of the three, so their deficits never close and the hinge keeps paying:
+  carrot $91 and tomato $241 a unit at the deficits our own games already reach,
+  against wheat's $47. Naively re-pricing the planner loses $34k (above), so the
+  question is not "is it worth more" -- it is -- but how to add it without the
+  livestock build slipping. Probably the single largest untouched line item now.
+- **Walking, ~950 productive actions a game.** The largest single gap measured
+  against the ladder, and a prerequisite for most of the items below -- see *The
+  action budget is the binding constraint*. Keep a unit working a compact area
+  for several turns instead of sending the cheapest unit to the best-scoring job.
+- **Dated fertilizer and feed in `animal_profit`, stranded behind the ledger.**
+  The flat season price overstates the dung and understates the feed, because
+  fertilizer falls ~$100 to ~$30 across a season while wheat climbs. The dated
+  version is written and measured only in ledger mode, which is off, so the fix
+  is currently unreachable on the shipped agent. It is small, self-contained,
+  and independent of everything the ledger got wrong -- worth measuring on its
+  own. See *Fixed on the way, worth porting*.
+- **Fertiliser is switched off entirely.** Zero FERTILIZE actions; we collect 139
+  and offer 138 for sale into a market we have already glutted at ~$46. Applied to
+  watered wheat it is 4 units -> 6 on the same land and seed. The engine only
+  grants the bonus on a day the tile was also watered, so the two are complements.
+- **Wheat.** The top agents sell 433 a game; we request 215 and, on the older
+  pre-forecast agent, sold 28. The market still ends hundreds of units below
+  equilibrium with the price risen. Cheapest crop, fastest cycle (5 days), and
+  the only one still investable after about day 24.
 - **The left tail — now the biggest open problem.** Ladder banks run $10k-$121k
   where the same agent banks a tight $55-60k locally against a mirror. v15's
   first three games already contain a $10,784 game; v14's recent losses bank
@@ -727,12 +1567,9 @@ hand-tuned weights and a joint search did not.
   whether the bad games correlate with an unlucky draw against what we planted,
   and if so hold planting capacity back to respond to the actual draw rather
   than spending it all on the prior.
-- **Stranded livestock, ~$5k a game, on half of all seeds.** `lab/checks/
-  validate.py` reports 4 cows + 7 sheep and 4 cows + 6 sheep sitting unplaced in
-  the shed on seeds 1 and 2, while games elsewhere finish with a dozen *empty*
-  pastures. Capital that was bought, never placed, and never earned. The old
-  note below says stranding was accidentally protecting us from crashing wool --
-  that was measured before the demand forecast existed and should be re-tested.
+- ~~**Stranded livestock, ~$5k a game.**~~ **Closed 2026-08-19** -- the cause was
+  the PLACE job vanishing when PICKUP emptied the shed, plus nothing holding a
+  unit to an animal it was carrying. `validate.py` now reports no stranding.
 - **The pool needs a real opponent.** Everything in it is our own lineage, and
   we beat all of it. Reconstruct an archetype from a 3,200-rated replay --
   strawberry+wheat at scale over 13 animals -- or the next tuning round fits
@@ -762,7 +1599,7 @@ over full games), every game `DONE`, p95 turn latency far below the 1s limit
 ## Environment
 
 - Research venv (Linux, fast): `~/.venvs/kaggri` — Python 3.12.13,
-  `kaggle-environments==1.32.6`, `kaggle==2.2.4`. **This is the post-rebalance
+  `kaggle-environments==1.32.7`, `kaggle==2.2.4`. **This is the post-rebalance
   engine the ladder runs. Measure here, and only here.**
 - The Windows `.venv/` in the repo is **stale**: `kaggle-environments==1.32.3`,
   the pre-rebalance engine, untouched since 2026-08-04. It is not a parity

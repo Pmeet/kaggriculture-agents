@@ -1,0 +1,907 @@
+<title>The Kaggriculture Market</title>
+<style>
+  /* ---- light palette: complete, defined on bare :root ---- */
+  :root {
+    --paper:        #ecede4;
+    --paper-2:      #f7f7f1;
+    --paper-3:      #e2e4d8;
+    --ink:          #16190f;
+    --ink-2:        #43483a;
+    --ink-3:        #6b6f5f;
+    --rule:         #c9ccbc;
+    --rule-soft:    #dcdece;
+    --accent:       #7d6110;
+    --accent-soft:  #f0e3b8;
+    --crash:        #9d3b26;
+    --grow:         #47703a;
+
+    --viz-surface:  #f7f7f1;
+    --viz-grid:     #dcdece;
+    --s1: #184f95;   /* log    — deepest market  */
+    --s2: #2a78d6;   /* sqrt                     */
+    --s3: #5598e7;   /* linear                   */
+    --s4: #86b6ef;   /* sq     — thinnest market */
+
+    --measure: 34rem;
+    --wide: 58rem;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper:       #14170f;
+      --paper-2:     #1c2016;
+      --paper-3:     #262b1e;
+      --ink:         #eff0e4;
+      --ink-2:       #bdc0ae;
+      --ink-3:       #8e9280;
+      --rule:        #363c2c;
+      --rule-soft:   #272c1f;
+      --accent:      #d3b04a;
+      --accent-soft: #3a3116;
+      --crash:       #d97a5f;
+      --grow:        #8bb07a;
+
+      --viz-surface: #1c2016;
+      --viz-grid:    #2e3424;
+      --s1: #9ec5f4;
+      --s2: #6da7ec;
+      --s3: #3987e5;
+      --s4: #184f95;
+    }
+  }
+  :root[data-theme="dark"] {
+    --paper:       #14170f;
+    --paper-2:     #1c2016;
+    --paper-3:     #262b1e;
+    --ink:         #eff0e4;
+    --ink-2:       #bdc0ae;
+    --ink-3:       #8e9280;
+    --rule:        #363c2c;
+    --rule-soft:   #272c1f;
+    --accent:      #d3b04a;
+    --accent-soft: #3a3116;
+    --crash:       #d97a5f;
+    --grow:        #8bb07a;
+
+    --viz-surface: #1c2016;
+    --viz-grid:    #2e3424;
+    --s1: #9ec5f4;
+    --s2: #6da7ec;
+    --s3: #3987e5;
+    --s4: #184f95;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    background: var(--paper);
+    color: var(--ink);
+    font: 400 17px/1.65 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    margin: 0;
+    padding: 0 1.25rem 6rem;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .col { max-width: var(--measure); margin-inline: auto; }
+  .wide { max-width: var(--wide); margin-inline: auto; }
+
+  h1, h2, h3 {
+    font-family: Georgia, "Iowan Old Style", "Times New Roman", serif;
+    font-weight: 600;
+    text-wrap: balance;
+    letter-spacing: -0.01em;
+    margin: 0;
+  }
+  h1 { font-size: clamp(2.1rem, 5.5vw, 3.1rem); line-height: 1.08; }
+  h2 { font-size: 1.6rem; line-height: 1.2; }
+  h3 { font-size: 1.08rem; line-height: 1.3; }
+  p  { margin: 0; }
+  strong { font-weight: 600; }
+
+  .eyebrow {
+    font: 600 0.72rem/1 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: var(--accent);
+  }
+
+  header.hero {
+    border-bottom: 1px solid var(--rule);
+    padding: 4.5rem 0 2.5rem;
+    margin-bottom: 3rem;
+  }
+  .hero-stack { display: flex; flex-direction: column; gap: 1.4rem; }
+  .lede { font-size: 1.16rem; color: var(--ink-2); }
+  .byline {
+    font: 400 0.82rem/1.5 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    color: var(--ink-3);
+  }
+
+  /* headline figures — the three numbers the whole report turns on */
+  .board {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+    gap: 1px;
+    background: var(--rule);
+    border: 1px solid var(--rule);
+    margin-top: 1.2rem;
+  }
+  .board div { background: var(--paper-2); padding: 1.1rem 1.15rem; }
+  .board .k {
+    font: 600 0.68rem/1 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    letter-spacing: 0.11em; text-transform: uppercase; color: var(--ink-3);
+    display: block; margin-bottom: 0.5rem;
+  }
+  .board .v {
+    font: 600 1.85rem/1 Georgia, "Iowan Old Style", serif;
+    font-variant-numeric: tabular-nums; display: block;
+  }
+  .board .n { font-size: 0.83rem; color: var(--ink-3); display: block; margin-top: 0.35rem; }
+
+  section { margin-bottom: 3.6rem; }
+  .sec-head { display: flex; flex-direction: column; gap: 0.5rem; margin-bottom: 1.3rem; }
+  .stack { display: flex; flex-direction: column; gap: 1rem; }
+  .stack-tight { display: flex; flex-direction: column; gap: 0.6rem; }
+
+  /* concept blocks */
+  .concept {
+    border-top: 2px solid var(--ink);
+    padding-top: 0.9rem;
+    display: flex; flex-direction: column; gap: 0.75rem;
+  }
+  .concept + .concept { margin-top: 2.1rem; }
+  .term {
+    font: 600 0.72rem/1 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    letter-spacing: 0.13em; text-transform: uppercase; color: var(--ink-3);
+  }
+  .worked {
+    background: var(--paper-2);
+    border-left: 3px solid var(--accent);
+    padding: 0.85rem 1rem;
+    font-size: 0.95rem;
+    color: var(--ink-2);
+  }
+  .worked b { color: var(--ink); font-weight: 600; }
+
+  /* tables */
+  .scroll { overflow-x: auto; margin-block: 0.4rem; }
+  table { border-collapse: collapse; width: 100%; font-size: 0.87rem; }
+  caption {
+    text-align: left; color: var(--ink-3); font-size: 0.82rem;
+    padding-bottom: 0.6rem;
+  }
+  th, td { padding: 0.5rem 0.7rem; text-align: right; white-space: nowrap; }
+  th:first-child, td:first-child { text-align: left; }
+  thead th {
+    font: 600 0.7rem/1.3 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    letter-spacing: 0.06em; text-transform: uppercase;
+    color: var(--ink-3); border-bottom: 1px solid var(--rule);
+  }
+  tbody td { border-bottom: 1px solid var(--rule-soft); font-variant-numeric: tabular-nums; }
+  tbody tr:last-child td { border-bottom: 1px solid var(--rule); }
+  td.num, th.num { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+  .hi { background: var(--accent-soft); }
+  .bad { color: var(--crash); font-weight: 600; }
+  .good { color: var(--grow); font-weight: 600; }
+
+  /* chart */
+  figure { margin: 0; display: flex; flex-direction: column; gap: 0.8rem; }
+  .viz {
+    background: var(--viz-surface);
+    border: 1px solid var(--rule);
+    padding: 1rem 1rem 0.5rem;
+    position: relative;
+  }
+  .viz svg { display: block; width: 100%; height: auto; overflow: visible; }
+  .legend {
+    display: flex; flex-wrap: wrap; gap: 0.4rem 1.1rem;
+    font: 500 0.78rem/1 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    color: var(--ink-2); padding-top: 0.7rem;
+  }
+  .legend span { display: inline-flex; align-items: center; gap: 0.4rem; }
+  .swatch { width: 15px; height: 3px; border-radius: 1.5px; flex: none; }
+  figcaption { font-size: 0.86rem; color: var(--ink-3); }
+  .tip {
+    position: absolute; pointer-events: none; opacity: 0;
+    background: var(--paper); border: 1px solid var(--rule);
+    padding: 0.45rem 0.6rem; font: 500 0.76rem/1.45 ui-monospace, Menlo, monospace;
+    color: var(--ink); white-space: nowrap; transition: opacity .1s; z-index: 5;
+  }
+  .tip b { color: var(--accent); }
+
+  ol.ranked { margin: 0; padding: 0; list-style: none; counter-reset: r;
+              display: flex; flex-direction: column; gap: 1.5rem; }
+  ol.ranked > li {
+    counter-increment: r; display: grid;
+    grid-template-columns: 2.3rem 1fr; gap: 0.9rem; align-items: start;
+  }
+  ol.ranked > li::before {
+    content: counter(r); font: 600 1.5rem/1 Georgia, serif;
+    color: var(--accent); font-variant-numeric: tabular-nums;
+  }
+  .ranked h3 { margin-bottom: 0.35rem; }
+  .tag {
+    display: inline-block; font: 600 0.66rem/1 ui-monospace, Menlo, monospace;
+    letter-spacing: 0.09em; text-transform: uppercase;
+    border: 1px solid var(--rule); color: var(--ink-3);
+    padding: 0.28rem 0.45rem; margin-left: 0.5rem; vertical-align: 0.15em;
+  }
+
+  ul.plain { margin: 0; padding-left: 1.1rem; display: flex; flex-direction: column; gap: 0.5rem; }
+  ul.plain li::marker { color: var(--ink-3); }
+
+  hr.div { border: 0; border-top: 1px solid var(--rule); margin: 0 0 3rem; }
+  .foot { color: var(--ink-3); font-size: 0.86rem; }
+  a { color: var(--accent); }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<header class="hero">
+  <div class="col hero-stack">
+    <span class="eyebrow">Kaggriculture · field study · 19 Aug 2026</span>
+    <h1>Half our farm is walking</h1>
+    <p class="lede">
+      Three replays of ~3,200-rated agents, laid against our own game action for action.
+      The gap is not strategy and not the crops we chose. We spend 56% of every action
+      budget moving between tiles and only 27% doing work. They spend 42% and 41%.
+    </p>
+    <p class="byline">
+      Sources: ladder replay 91537598 (THUNDER THUNDER v HealthStone, both ~3,200)
+      · v22 vs v21 local, seed 1 · engines 1.32.6 and 1.32.7
+    </p>
+    <div class="worked" style="margin-top:0.4rem">
+      <b>Updated 19 Aug, three times, after publication.</b> Kaggle shipped a
+      balance change on 15 August that we had missed — engine <b>1.32.7</b> —
+      which reprices exactly the thing this report is about; see
+      <a href="#reprice">the postscript</a>. The top-ranked action was then carried
+      out: the diagnosis held, <b>the prescription did not</b>, and the real cause
+      was livestock bought and never delivered — worth <b>+$23,700</b> and a
+      0.641 → 1.000 local win rate.
+      <br><br>
+      And the whole premise below has now been re-tested against the top 20 of the
+      ladder. <b>The crop economy is no longer our gap</b> — we plant their farm.
+      What remains is execution, and the action list is re-ranked accordingly.
+      <a href="#next">Details in the ranked list.</a>
+    </div>
+    <div class="board">
+      <div><span class="k">Productive actions</span><span class="v">1,936</span>
+           <span class="n">ours · theirs 2,884 · ceiling ≈3,400</span></div>
+      <div><span class="k">Tiles walked per job</span><span class="v">2.02</span>
+           <span class="n">ours · theirs 1.02</span></div>
+      <div><span class="k">Fertiliser applied</span><span class="v">0</span>
+           <span class="n">ours · theirs 68–70 · we sell it instead</span></div>
+    </div>
+  </div>
+</header>
+
+<main>
+
+<section class="col stack">
+  <div class="sec-head">
+    <span class="eyebrow">The short version</span>
+    <h2>We run their farm at half throughput — except where the market can't take it</h2>
+  </div>
+  <p>
+    Set our sell orders beside theirs and a pattern falls out immediately. On every product
+    where the market can absorb volume we are at roughly half their number. On melon —
+    the one product that collapses fastest under selling — we are at parity.
+  </p>
+  <div class="scroll">
+    <table>
+      <caption>Units requested for sale over one game. Requests are an upper bound on
+        units actually sold, and both sides are counted the same way.</caption>
+      <thead><tr>
+        <th>Product</th><th class="num">THUNDER</th><th class="num">HealthStone</th>
+        <th class="num">Ours (v22)</th><th class="num">Ours ÷ THUNDER</th>
+      </tr></thead>
+      <tbody>
+        <tr><td>Wheat</td><td class="num">433</td><td class="num">431</td><td class="num">215</td><td class="num bad">50%</td></tr>
+        <tr><td>Strawberry</td><td class="num">272</td><td class="num">263</td><td class="num">184</td><td class="num bad">68%</td></tr>
+        <tr><td>Fertiliser</td><td class="num">257</td><td class="num">232</td><td class="num">138</td><td class="num bad">54%</td></tr>
+        <tr><td>Milk</td><td class="num">250</td><td class="num">233</td><td class="num">119</td><td class="num bad">48%</td></tr>
+        <tr><td>Wool</td><td class="num">132</td><td class="num">79</td><td class="num">0</td><td class="num bad">0%</td></tr>
+        <tr class="hi"><td>Melon</td><td class="num">108</td><td class="num">104</td><td class="num">112</td><td class="num good">104%</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>
+    That single highlighted row is the whole thesis. Melon is the product we have tuned
+    hardest and it is the only one where we already match the best agents on the board —
+    because melon's price collapses so fast that <em>nobody</em> can sell more of it.
+    We have optimised ourselves right up against a ceiling, and left the ceiling-free
+    products at half.
+  </p>
+</section>
+
+<hr class="div" />
+
+<section class="wide stack">
+  <div class="sec-head col">
+    <span class="eyebrow">Concept 01</span>
+    <h2>Price impact: what it costs you to be the seller</h2>
+  </div>
+  <div class="col stack">
+    <p>
+      Every unit you sell is added to a shared market inventory, and the price is a
+      function of that inventory. So the second unit sells for slightly less than the
+      first, and the thousandth may sell for nothing. Economists call this
+      <strong>price impact</strong>, and a market where impact is small is called
+      <strong>deep</strong>. It is the same reason selling one share of a company is easy
+      and selling a million moves the price against you.
+    </p>
+    <p>
+      In this game the depth is not an emergent thing you have to discover by
+      experiment — it is a single parameter per product, <code>above_func</code>, and it
+      ranges over four shapes. That parameter, more than any crop statistic, decides
+      what a product is worth to you.
+    </p>
+  </div>
+
+  <figure>
+    <div class="viz">
+      <svg id="chart" viewBox="0 0 900 420" role="img"
+           aria-label="Price against units sold for eight products. Wheat and egg stay
+                       almost flat across 400 units; strawberry, milk and wool fall to
+                       the floor within 60 to 100 units; melon within 160."></svg>
+      <div class="tip" id="tip"></div>
+      <div class="legend">
+        <span><i class="swatch" style="background:var(--s1)"></i>log — barely moves</span>
+        <span><i class="swatch" style="background:var(--s2)"></i>sqrt</span>
+        <span><i class="swatch" style="background:var(--s3)"></i>linear</span>
+        <span><i class="swatch" style="background:var(--s4)"></i>square — falls off a cliff</span>
+      </div>
+    </div>
+    <figcaption class="col" style="margin-inline:0">
+      Price of the next unit after selling N units into a market that starts at
+      equilibrium. Colour is the product's <code>above_func</code> — the depth
+      parameter — running dark (deepest) to light (thinnest). Computed directly
+      from the engine's <code>market_price</code>, not sampled from games.
+    </figcaption>
+  </figure>
+
+  <div class="col stack">
+    <p>
+      Wheat and egg are <em>log</em> markets: sell four hundred units and the price is
+      still 80% of where it started. Strawberry and milk are <em>linear</em>; wool and
+      melon are <em>square</em>, and hit the $1 floor while you are still unloading your
+      first harvest. There is no strategy that makes a square market absorb volume.
+    </p>
+    <div class="scroll">
+      <table>
+        <caption>What a season's selling actually earns, per product.</caption>
+        <thead><tr>
+          <th>Product</th><th>Depth</th><th class="num">Price at 0</th>
+          <th class="num">at 100</th><th class="num">at 400</th>
+          <th class="num">Revenue, 400 units</th><th class="num">Average each</th>
+        </tr></thead>
+        <tbody>
+          <tr><td>Egg</td><td>log</td><td class="num">50</td><td class="num">42</td><td class="num">40</td><td class="num">$16,559</td><td class="num good">$41</td></tr>
+          <tr><td>Wheat</td><td>log</td><td class="num">25</td><td class="num">21</td><td class="num">20</td><td class="num">$8,313</td><td class="num good">$21</td></tr>
+          <tr><td>Carrot</td><td>sqrt</td><td class="num">35</td><td class="num">23</td><td class="num">12</td><td class="num">$7,853</td><td class="num">$20</td></tr>
+          <tr><td>Tomato</td><td>sqrt</td><td class="num">60</td><td class="num">35</td><td class="num">9</td><td class="num">$10,453</td><td class="num">$26</td></tr>
+          <tr><td>Milk</td><td>linear</td><td class="num">160</td><td class="num">1</td><td class="num">1</td><td class="num">$6,505</td><td class="num bad">$16</td></tr>
+          <tr><td>Strawberry</td><td>linear</td><td class="num">120</td><td class="num">1</td><td class="num">1</td><td class="num">$4,147</td><td class="num bad">$10</td></tr>
+          <tr><td>Wool</td><td>square</td><td class="num">200</td><td class="num">1</td><td class="num">1</td><td class="num">$8,269</td><td class="num bad">$21</td></tr>
+          <tr><td>Melon</td><td>square</td><td class="num">250</td><td class="num">150</td><td class="num">1</td><td class="num">$26,727</td><td class="num bad">$67</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<section class="col stack">
+  <div class="concept">
+    <span class="term">Concept 02 · marginal vs average</span>
+    <h3>The headline price is a lie about the last unit</h3>
+    <p>
+      A crop's sticker price tells you what the <em>first</em> unit fetches. What matters
+      for a decision to plant one more tile is what the <em>next</em> unit fetches — the
+      marginal revenue. In a thin market those two numbers separate violently.
+    </p>
+    <div class="worked">
+      Melon's first 100 units earn <b>$21,721</b> — about $217 each, the best line in the
+      game. The next 300 units earn <b>$5,006 in total</b>, roughly <b>$17 each</b>.
+      Same crop, same farm, one-thirteenth the value. Our agent holds 21 melon tiles and
+      unloads them in a single late window, walking its own price from <b>$277 on day 21
+      to $4 by day 27</b>.
+    </div>
+  </div>
+
+  <div class="concept">
+    <span class="term">Concept 03 · stock and flow</span>
+    <h3>The town is a conveyor, not a warehouse</h3>
+    <p>
+      The price depends on the inventory <em>level</em> (a stock), but the town removes
+      goods at a fixed <em>rate</em> (a flow). Sell slower than the town consumes and the
+      stock falls, so the price rises. Sell faster and it accumulates against you. The
+      sustainable sales rate for a product is simply the rate the town drains it.
+    </p>
+    <div class="worked">
+      In the 137k replay, wheat inventory finished <b>436 units below</b> equilibrium and
+      the price rose from $25 to <b>$46</b> — while the two best agents on the board were
+      selling 431 and 433 wheat into it. They could not oversupply it if they tried.
+      Wool in the same game sat 58 units <em>above</em>, and paid <b>$5</b>.
+    </div>
+  </div>
+
+  <div class="concept">
+    <span class="term">Concept 04 · the commons</span>
+    <h3>You are selling into your opponent's market too</h3>
+    <p>
+      There is one inventory and one price, shared by both farms. Your opponent's dumping
+      crashes your price as surely as your own. This makes production choices strategic
+      rather than merely optimal: a product is worth what it is worth <em>after</em> the
+      other farm has finished selling it.
+    </p>
+    <div class="worked">
+      This is why the melon parity in the opening table is worse than it looks. Two farms
+      both maxing melon share one collapsing curve — and the fastest seller takes the
+      high prices. Deep markets have no such race, which is exactly why they are where
+      the reliable money is.
+    </div>
+  </div>
+
+  <div class="concept">
+    <span class="term">Concept 05 · opportunity cost</span>
+    <h3>The scarce thing is a tile-day, and an action</h3>
+    <p>
+      Nothing here is profitable or unprofitable in isolation. A tile can hold one crop at
+      a time, and a unit can take one action per turn, so the real question about any job
+      is what you gave up to do it. Two budgets bind: about 75 usable tiles × 30 days, and
+      about 7,000 unit-actions.
+    </p>
+    <div class="scroll">
+      <table>
+        <caption>One tile, one full cycle, at equilibrium prices.</caption>
+        <thead><tr>
+          <th>Crop</th><th class="num">Seed</th><th class="num">Days</th>
+          <th class="num">Yield</th><th class="num">Net</th>
+          <th class="num">Per tile-day</th><th class="num">Per action</th>
+        </tr></thead>
+        <tbody>
+          <tr><td>Melon</td><td class="num">$80</td><td class="num">13</td><td class="num">6</td><td class="num">$1,420</td><td class="num">$109</td><td class="num">$158</td></tr>
+          <tr><td>Strawberry</td><td class="num">$100</td><td class="num">17</td><td class="num">4</td><td class="num">$380</td><td class="num">$22</td><td class="num">$20</td></tr>
+          <tr><td>Carrot</td><td class="num">$20</td><td class="num">4</td><td class="num">3</td><td class="num">$85</td><td class="num">$21</td><td class="num">$21</td></tr>
+          <tr class="hi"><td>Wheat</td><td class="num">$10</td><td class="num">5</td><td class="num">4</td><td class="num">$90</td><td class="num">$18</td><td class="num">$18</td></tr>
+          <tr><td>Tomato</td><td class="num">$50</td><td class="num">13</td><td class="num">4</td><td class="num">$190</td><td class="num">$15</td><td class="num">$13</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>
+      Read naively this table says grow melon and never grow wheat — and that is precisely
+      the trap Concept 02 describes. It prices every unit at the <em>first</em> unit's
+      price. Melon's $109 per tile-day is real for about eighty units a game and is $1
+      after that. Wheat's $18 is real for as many units as you can physically produce, and
+      by day 24 it is closer to $34 because the price has risen all game.
+    </p>
+  </div>
+
+  <div class="concept">
+    <span class="term">Concept 06 · duration</span>
+    <h3>As the horizon shortens, only short crops are investable</h3>
+    <p>
+      A strawberry planted on day 6 has seventeen days of life and pays four times. The
+      same seed planted on day 20 is a dead tile — the season ends before it yields. This
+      is why the top agents' farms visibly change shape in the last third: land is rotated
+      out of long crops and into the shortest one that still completes.
+    </p>
+    <div class="worked">
+      THUNDER THUNDER from day 22 to day 28: strawberry <b>29 → 7</b> tiles, while wheat
+      climbs <b>31 → 44</b>. They plant wheat <b>144 times</b> in a game — a five-day crop
+      cycled over and over. We plant it 102 times and finish with
+      <b>40 ripe wheat units standing unharvested</b> in the field.
+    </div>
+  </div>
+
+  <div class="concept">
+    <span class="term">Concept 07 · complements</span>
+    <h3>Fertiliser is worth nothing without water</h3>
+    <p>
+      Inputs that only pay when used together are <strong>complements</strong>. The engine
+      makes this literal: the fertiliser bonus is granted only on a day the tile was also
+      watered. Applied properly it takes a wheat tile from 4 units to 6 — a 50% increase
+      on the same land, the same seed and one extra action.
+    </p>
+    <div class="worked">
+      Our agent issues <b>zero</b> FERTILIZE actions. It collects 139 fertiliser from
+      livestock and puts 138 of them up for sale into a market it has already glutted,
+      where the price has fallen from $100 to about <b>$46</b>. The top agents collect
+      ~310 and hold back ~70 for the fields.
+    </div>
+  </div>
+</section>
+
+<hr class="div" />
+
+<section class="wide stack">
+  <div class="sec-head col">
+    <span class="eyebrow">The measurement</span>
+    <h2>Where the action budget actually goes</h2>
+  </div>
+  <div class="col stack">
+    <p>
+      All of the above would be advice we could not act on if we lacked the labour to act.
+      So the last measurement is the plainest one: classify all ~7,000 unit-actions in a
+      game as movement, idling, or work.
+    </p>
+  </div>
+  <div class="scroll">
+    <table>
+      <caption>Every unit-action in one game, by kind. Movement is a single step in one
+        of four directions.</caption>
+      <thead><tr>
+        <th>Agent</th><th class="num">Actions</th><th class="num">Moving</th>
+        <th class="num">Idle</th><th class="num">Working</th>
+        <th class="num">Tiles walked per job</th>
+      </tr></thead>
+      <tbody>
+        <tr><td>THUNDER THUNDER (~3,200)</td><td class="num">6,996</td><td class="num">42.3%</td><td class="num">16.5%</td><td class="num good">41.2%</td><td class="num good">1.02</td></tr>
+        <tr><td>HealthStone (~3,200)</td><td class="num">6,873</td><td class="num">52.8%</td><td class="num good">9.4%</td><td class="num">37.8%</td><td class="num">1.39</td></tr>
+        <tr class="hi"><td>Ours (v22)</td><td class="num">7,042</td><td class="num bad">55.6%</td><td class="num">16.9%</td><td class="num bad">27.5%</td><td class="num bad">2.02</td></tr>
+        <tr><td>Ours (v21)</td><td class="num">6,979</td><td class="num bad">56.2%</td><td class="num">16.4%</td><td class="num bad">27.4%</td><td class="num bad">2.04</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="col stack">
+    <p>
+      We take the same number of actions and convert 1,936 of them into work against
+      THUNDER's 2,884 — <strong>49% more work from an identical budget</strong>. Every
+      downstream symptom follows from this one number: we harvest 203 times to their 389,
+      feed 114 times to their 312, and fertilise zero times to their 70. There was never
+      enough labour left over.
+    </p>
+    <p>
+      The two agents fail differently, which is useful, because it means the two levers are
+      independent. THUNDER routes well (42.3% moving). HealthStone routes no better than us
+      but almost never leaves a unit idle (9.4%). An agent that did both would reach roughly
+      48% working — about <strong>3,400 productive actions</strong>, or 76% more than we
+      manage now.
+    </p>
+  </div>
+</section>
+
+<hr class="div" />
+
+<section class="col stack" id="next">
+  <div class="sec-head">
+    <span class="eyebrow">What I would do next</span>
+    <h2>Ranked by expected value, not by how interesting it is</h2>
+  </div>
+  <ol class="ranked">
+    <li>
+      <div>
+        <h3>Cut the walking<span class="tag">done — but not as written</span></h3>
+        <div class="worked">
+          <b>Result:</b> the prescription here was wrong and the diagnosis was right.
+          Pricing the walk higher — the obvious reading — was <b>strictly worse at every
+          setting</b>: score 0.641 → 0.078 at <code>action_cost_scale</code> 0.75, and
+          0.016 at 1.0. Walking was never mispriced.
+          <br><br>
+          Splitting the work by tile type found the real shape. Animal tiles carry four
+          jobs a day, so a unit parked on a herd works without moving — THUNDER does 949
+          animal jobs at <b>0.39 tiles each</b>, we did 386 at 1.53. Our herd was
+          <em>tighter</em> than theirs (spread 1.12 vs 2.08); it was five animals against
+          fourteen. <b>The walking was a symptom of the herd.</b>
+          <br><br>
+          And the herd was small because animals were bought and never delivered: seed 2
+          bought 17, placed 9, and ended with ten animals in units' hands facing ten empty
+          pens. The <code>PLACE</code> job required stock in the <em>shed</em>, so
+          <code>PICKUP</code> deleted the job and orphaned the carrier — and animals
+          aren't in <code>PRODUCTS</code>, so nothing else noticed a unit holding one.
+          <br><br>
+          Fixed: <b>0.641 → 0.990</b> search, <b>1.000</b> held out; margin
+          <b>+$4,965 → +$28,696</b>. Jobs 1,936 → 2,386, working share 27.5% → 33.6%,
+          walk/job 2.02 → 1.66, idle 16.9% → 10.6%. Worst local game now banks $58,243.
+          The validator reports no stranded livestock for the first time.
+          <br><br>
+          Still 33.6% working against THUNDER's 41.2%, so the remaining gap is crop-side
+          routing — a smaller and genuinely harder problem than this one turned out to be.
+        </div>
+      </div>
+    </li>
+    <li>
+      <div>
+        <h3>Harvest what we already grow<span class="tag">now the largest</span></h3>
+        <div class="worked">
+          <b>Re-ranked 19 Aug</b> after profiling the top 20. We plant essentially
+          their farm — wheat 121 against 125, strawberry 46 against 42 — and pick
+          <b>271 against their 399</b>. A third of everything we grow is never
+          harvested. <code>DIG 57 against 31</code> is the same fault seen from the
+          other end: tiles die unharvested and then cost actions to clear.
+        </div>
+        <p>
+          The last-day half of this is done (v25, unshipped): harvest anything ripe
+          inside <code>liquidate_days</code> instead of waiting for max yield, plus a
+          last-train-home rule so carried produce is banked. Worth +$3,745 held out.
+          The other 28 days are untouched.
+        </p>
+      </div>
+    </li>
+    <li>
+      <div>
+        <h3>Turn fertiliser back on<span class="tag">cheapest, and confirmed</span></h3>
+        <p>
+          Still disabled outright — <b>0 actions against the consensus notebook's 70</b>.
+          The top-20 profile strengthened this considerably: <b>tetsuya, the rank-1
+          agent, runs 132</b>, nearly double the field. It is the clearest single thing
+          the best agent on the ladder does that the shared notebook does not.
+          Applied to watered wheat it converts a $46 sale into two extra units worth
+          ~$90, and we already collect the input free.
+        </p>
+      </div>
+    </li>
+    <li>
+      <div>
+        <h3>Close the walking gap — but not by pricing it<span class="tag">open, method unknown</span></h3>
+        <p>
+          1.87 tiles a job against the notebook's 1.32, and <b>1.48 against 0.77 on
+          animal tiles</b>. ReCurSiON reaches 1.02 and 0.35. Two approaches are already
+          ruled out by measurement: raising <code>action_cost</code> is
+          <b>strictly worse at every setting</b>, and bonusing same-tile chaining moves
+          the metric while losing money, because travel is conserved and chaining just
+          spends the free slot on a cheaper job. Whatever works here is structural, and
+          I do not yet know what it is.
+        </p>
+      </div>
+    </li>
+    <li>
+      <div>
+        <h3>Re-price the crop mix on marginal, not average, revenue<span class="tag">structural</span></h3>
+        <p>
+          Any planting decision that uses a product's current price will over-plant thin
+          markets. It should use the price expected after our own projected supply lands —
+          a change to how a tile is valued, not a parameter to tune. Still the
+          prerequisite for the item below.
+        </p>
+      </div>
+    </li>
+    <li>
+      <div>
+        <h3>Claim the carrot and tomato premium<span class="tag">downgraded</span></h3>
+        <div class="worked">
+          <b>Demoted 19 Aug.</b> A competitor reproduced the reprice over 120 replayed
+          episodes: median scarcity sits just <em>below</em> each new knee, so the median
+          game pays <b>1.00×</b> the old revenue, ~2× only at p90, and <b>egg never
+          reaches the money at any percentile</b>. Switching build with agent and seed
+          fixed changed <b>0 of 224 winners</b>. It is a tail opportunity in a minority
+          of games, not a standing edge — and the one attempt cost $34,044.
+        </div>
+      </div>
+    </li>
+    <li>
+      <div>
+        <h3>Build three opponents, not twenty<span class="tag">new, unblocks measurement</span></h3>
+        <p>
+          <b>15 of the 22 top teams are behaviourally identical</b> — within 2% on every
+          action count. The top of the ladder is one shared notebook plus three genuine
+          variants: tetsuya (fertiliser-heavy), ReCurSiON (14 hands, high water), and
+          Eddy Despradel (four quadrants). Reproducing the consensus agent matters most,
+          because it is what the ladder actually pairs us against — and until it exists,
+          every local number is measured against our own lineage.
+        </p>
+      </div>
+    </li>
+  </ol>
+</section>
+
+<hr class="div" />
+
+<section class="col stack" id="reprice">
+  <div class="sec-head">
+    <span class="eyebrow">Postscript · 15 August balance change</span>
+    <h2>The rules changed under us, in exactly this area</h2>
+  </div>
+  <p>
+    Kaggle staff posted a stickied note titled <em>Small balance change</em> on
+    15 August; engine <strong>1.32.7</strong> went out an hour later. We were still
+    running 1.32.6, so four days of measurement — including the first draft of this
+    report — described a game the ladder had stopped playing. Confirmed rather than
+    assumed: a replay of our own agent from 18 August disagrees with 1.32.6 on five
+    sampled prices and with 1.32.7 on none.
+  </p>
+  <p>
+    The change adds a new curve shape, <code>hinge</code>, to the <em>scarcity</em>
+    side of three products — calm until a product is genuinely short, then
+    quadratic. Crops, animals, lifecycles and every glut-side curve are untouched,
+    so Concepts 01–07 stand as written. What moves is the reward for supplying
+    something nobody grows.
+  </p>
+  <div class="scroll">
+    <table>
+      <caption>Scarcity pricing at the deficits our own games already reach.</caption>
+      <thead><tr>
+        <th>Product</th><th>Before</th><th>After</th>
+        <th class="num">Deficit</th><th class="num">Was</th><th class="num">Now</th>
+      </tr></thead>
+      <tbody>
+        <tr><td>Carrot</td><td>log, 0.20</td><td>hinge, <strong>1.00</strong></td><td class="num">−549</td><td class="num">$42</td><td class="num good">$91</td></tr>
+        <tr><td>Tomato</td><td>linear, 0.40</td><td>hinge, 0.40</td><td class="num">−369</td><td class="num">$104</td><td class="num good">$241</td></tr>
+        <tr><td>Egg</td><td>linear, 0.40</td><td>hinge, 0.40</td><td class="num">−550</td><td class="num">$83</td><td class="num good">$152</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>
+    <strong>Nobody grows any of the three</strong> — not us, not the agents in these
+    replays — so the deficits never close and the premium simply sits there. It also
+    probably explains something the previous study got wrong: opponent banks jumped
+    from ~$76k on 14 August to ~$100k on 18 August against frozen agent code, which
+    was read as the field improving. 15 August is when the engine started paying
+    several times more for three products.
+  </p>
+
+  <div class="concept">
+    <span class="term">What happened when we acted on it</span>
+    <h3>Concept 02 collected its debt immediately</h3>
+    <p>
+      Our agent's internal price model was corrected to match the new engine, which
+      is not optional — it decides what we sell. Letting those same prices drive
+      <em>planting</em> measured <strong class="bad">−$34,044 a game over six
+      seeds</strong>: the agent front-loaded carrot, the livestock build slipped
+      behind it, and ten pastures finished the game empty.
+    </p>
+    <div class="worked">
+      The first fix — refusing to plan against the runaway part of the curve —
+      changed <b>nothing at all</b>, because the deficits that appear in valuation
+      sit below the knee. The damage came from carrot's scarcity target moving
+      0.20 → 1.00, which lifts the <em>whole</em> curve rather than the tail. A
+      plausible fix, measured, worth exactly zero.
+    </div>
+    <p>
+      Selling now uses the true price; planting is pinned to the old curve until the
+      planner can take the opportunity without dropping the livestock build. The
+      premium is real and unclaimed — but it is an <em>average</em> price on a
+      product we would be the only seller of, which is precisely the trap Concept 02
+      describes.
+    </p>
+  </div>
+</section>
+
+<section class="col stack">
+  <div class="sec-head">
+    <span class="eyebrow">Caveats</span>
+    <h2>What this study does not establish</h2>
+  </div>
+  <ul class="plain">
+    <li>
+      The replays are from 11 August, before the balance change. These agents were at
+      the top then; the mechanics they exploit are unchanged, but their crop mix
+      predates a reprice that would reward a different one.
+    </li>
+    <li>
+      The depth table and chart are computed on the <em>glut</em> side of the curve,
+      which 1.32.7 did not touch. They are current. The scarcity figures in the
+      postscript are the ones that moved.
+    </li>
+    <li>
+      Their game and ours drew <em>different shops</em>, and shop draw swings a product's
+      total demand by several hundred units. Comparisons of structure — action mix, walking,
+      rotation — are sound. Direct comparisons of bank are not.
+    </li>
+    <li>
+      Sell figures are order <em>requests</em>, which over-count: a standing order repeats
+      each turn but only fills while the shed has stock. Both sides are counted identically,
+      so the ratios hold even though the absolute numbers are high.
+    </li>
+    <li>
+      The 49% and 76% headroom figures are arithmetic on the action census, not measured
+      bank. They say how much labour is recoverable, not what it will be worth.
+    </li>
+  </ul>
+  <p class="foot">
+    Engine <code>kaggle-environments</code> 1.32.6 (post-rebalance). Price curves computed
+    from <code>market_price</code>; action census over all 720 steps of each game.
+    Scripts and raw figures are in the branch this was written on.
+  </p>
+</section>
+
+</main>
+
+<script>
+(function () {
+  var DATA = {"WHEAT":[25,23,22,22,22,22,22,21,21,21,21,21,21,21,21,21,21,21,21,21,21,21,20,20,20,20,20,20,20,20,20,20,20,20,20,20,20,20,20,20,20],"EGG":[50,46,45,44,44,43,43,43,42,42,42,42,42,42,41,41,41,41,41,41,41,41,41,41,41,40,40,40,40,40,40,40,40,40,40,40,40,40,40,40,40],"CARROT":[35,31,30,29,28,27,26,25,25,24,23,23,22,22,21,21,20,20,20,19,19,18,18,17,17,17,16,16,16,15,15,15,14,14,14,13,13,13,12,12,12],"TOMATO":[60,52,49,46,44,42,40,39,37,36,35,33,32,31,30,29,28,27,26,25,24,23,22,21,21,20,19,18,17,17,16,15,14,14,13,12,12,11,10,10,9],"STRAWBERRY":[120,101,82,62,43,24,5,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],"MILK":[160,139,118,97,76,55,34,13,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],"WOOL":[200,194,177,148,107,55,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],"MELON":[250,249,246,241,234,225,214,201,186,169,150,129,106,81,54,25,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]};
+  var SERIES = [
+    { k: "WHEAT",      label: "Wheat",      slot: "--s1" },
+    { k: "EGG",        label: "Egg",        slot: "--s1" },
+    { k: "CARROT",     label: "Carrot",     slot: "--s2" },
+    { k: "TOMATO",     label: "Tomato",     slot: "--s2" },
+    { k: "STRAWBERRY", label: "Strawberry", slot: "--s3" },
+    { k: "MILK",       label: "Milk",       slot: "--s3" },
+    { k: "WOOL",       label: "Wool",       slot: "--s4" },
+    { k: "MELON",      label: "Melon",      slot: "--s4" }
+  ];
+  var NS = "http://www.w3.org/2000/svg";
+  var svg = document.getElementById("chart");
+  var tip = document.getElementById("tip");
+  if (!svg) { return; }
+
+  var W = 900, H = 420, L = 52, R = 96, T = 16, B = 42;
+  var PW = W - L - R, PH = H - T - B;
+  var MAXX = 400, MAXY = 260;
+  var xs = function (u) { return L + (u / MAXX) * PW; };
+  var ys = function (p) { return T + PH - (p / MAXY) * PH; };
+
+  function el(n, a) {
+    var e = document.createElementNS(NS, n);
+    for (var k in a) { e.setAttribute(k, a[k]); }
+    return e;
+  }
+
+  // recessive grid + axes
+  [0, 50, 100, 150, 200, 250].forEach(function (p) {
+    svg.appendChild(el("line", { x1: L, x2: L + PW, y1: ys(p), y2: ys(p),
+      stroke: "var(--viz-grid)", "stroke-width": 1 }));
+    var t = el("text", { x: L - 10, y: ys(p) + 4, "text-anchor": "end",
+      fill: "var(--ink-3)", "font-size": 12,
+      "font-family": "ui-monospace, Menlo, monospace" });
+    t.textContent = "$" + p;
+    svg.appendChild(t);
+  });
+  [0, 100, 200, 300, 400].forEach(function (u) {
+    var t = el("text", { x: xs(u), y: T + PH + 26, "text-anchor": "middle",
+      fill: "var(--ink-3)", "font-size": 12,
+      "font-family": "ui-monospace, Menlo, monospace" });
+    t.textContent = u;
+    svg.appendChild(t);
+  });
+  var ax = el("text", { x: L + PW / 2, y: H - 2, "text-anchor": "middle",
+    fill: "var(--ink-3)", "font-size": 12,
+    "font-family": "ui-monospace, Menlo, monospace" });
+  ax.textContent = "units sold into the market";
+  svg.appendChild(ax);
+
+  // series
+  SERIES.forEach(function (s) {
+    var pts = DATA[s.k].map(function (p, i) { return xs(i * 10) + "," + ys(p); }).join(" ");
+    svg.appendChild(el("polyline", { points: pts, fill: "none",
+      stroke: "var(" + s.slot + ")", "stroke-width": 2,
+      "stroke-linejoin": "round", "stroke-linecap": "round" }));
+  });
+
+  // direct labels, nudged apart where lines land on the floor together
+  var LAB = { WHEAT: 0, EGG: 0, CARROT: 0, TOMATO: 0,
+              STRAWBERRY: -13, MILK: 0, WOOL: 13, MELON: 26 };
+  SERIES.forEach(function (s) {
+    var last = DATA[s.k][DATA[s.k].length - 1];
+    var t = el("text", { x: L + PW + 10, y: ys(last) + 4 + (LAB[s.k] || 0),
+      fill: "var(--ink-2)", "font-size": 12.5, "font-weight": 500,
+      "font-family": "ui-monospace, Menlo, monospace" });
+    t.textContent = s.label;
+    svg.appendChild(t);
+    svg.appendChild(el("circle", { cx: xs(400), cy: ys(last), r: 3.2,
+      fill: "var(" + s.slot + ")" }));
+  });
+
+  // hover crosshair + tooltip
+  var rule = el("line", { y1: T, y2: T + PH, stroke: "var(--ink-3)",
+    "stroke-width": 1, "stroke-dasharray": "3 3", opacity: 0 });
+  svg.appendChild(rule);
+  var hit = el("rect", { x: L, y: T, width: PW, height: PH, fill: "transparent" });
+  svg.appendChild(hit);
+
+  function move(ev) {
+    var box = svg.getBoundingClientRect();
+    var px = (ev.clientX - box.left) / box.width * W;
+    var u = Math.round(((px - L) / PW) * MAXX / 10) * 10;
+    if (u < 0) { u = 0; }
+    if (u > MAXX) { u = MAXX; }
+    var i = u / 10;
+    rule.setAttribute("x1", xs(u));
+    rule.setAttribute("x2", xs(u));
+    rule.setAttribute("opacity", 1);
+    var rows = SERIES.map(function (s) {
+      return s.label + " $" + DATA[s.k][i];
+    }).join("<br>");
+    tip.innerHTML = "<b>after " + u + " units</b><br>" + rows;
+    tip.style.opacity = 1;
+    var lx = ev.clientX - box.left + 16;
+    if (lx > box.width - 160) { lx = ev.clientX - box.left - 150; }
+    tip.style.left = lx + "px";
+    tip.style.top = "14px";
+  }
+  hit.addEventListener("mousemove", move);
+  hit.addEventListener("mouseleave", function () {
+    tip.style.opacity = 0;
+    rule.setAttribute("opacity", 0);
+  });
+}());
+</script>

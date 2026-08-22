@@ -102,7 +102,7 @@ class PairedTournamentTest(unittest.TestCase):
 
         self.assertEqual(report["schema_version"], 1)
         self.assertEqual(report["summary"]["games"], 2)
-        self.assertEqual(report["metadata"]["kaggle_environments_version"], "1.32.6")
+        self.assertEqual(report["metadata"]["kaggle_environments_version"], "1.32.7")
         self.assertEqual(len(report["metadata"]["engine_sha256"]), 64)
         self.assertEqual(len(report["metadata"]["candidate_sha256"]), 64)
         self.assertEqual(len(rows), 2)
